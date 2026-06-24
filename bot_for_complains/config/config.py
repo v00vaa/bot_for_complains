@@ -1,53 +1,105 @@
+import logging
+import os
 from dataclasses import dataclass
+
 from environs import Env
 
-
-@dataclass
-class DatabaseConfig:
-    name: str         # Название базы данных
-    host: str         # URL-адрес базы данных
-    user: str         # Username пользователя базы данных
-    password: str     # Пароль к базе данных
+logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TgBot:
-    token: str            # Токен для доступа к телеграм-боту
-    admin_ids: list[int]  # Список id администраторов бота
+class BotSettings:
+    token: str
+    admin_id: int
+
+@dataclass
+class DatabaseSettings:
+    name: str
+    host: str
+    port: int
+    user: str
+    password: str
+
+    @property
+    def dsn(self) -> str:
+        return (
+            f"postgresql+asyncpg://"
+            f"{self.user}:{self.password}"
+            f"@{self.host}:{self.port}/{self.name}"
+        )
+
+#@dataclass
+#class RedisSettings:
+#    host: str
+#    port: int
+#    db: int
+#    password: str
+#    username: str
+
+
+@dataclass
+class LoggSettings:
+    level: str
+    format: str
 
 
 @dataclass
 class Config:
-    bot: TgBot
-    db: DatabaseConfig
+    bot: BotSettings
+    db: DatabaseSettings
+    #redis: RedisSettings
+    log: LoggSettings
 
 
-# Создаем экземпляр класса Env
-env: Env = Env()
+def load_config(path: str | None = None) -> Config:
+    env = Env()
 
-# Добавляем в переменные окружения данные, прочитанные из файла .env 
-env.read_env()
+    if path:
+        if not os.path.exists(path):
+            logger.warning(".env file not found at '%s', skipping...", path)
+        else:
+            logger.info("Loading .env from '%s'", path)
 
-# Создаем экземпляр класса Config и наполняем его данными из переменных окружения
-config = Config(
-    bot=TgBot(
-        token=env('BOT_TOKEN'),
-        admin_ids=list(map(int, env.list('ADMIN_IDS')))
-    ),
-    db=DatabaseConfig(
-        name=env('DB_NAME'),
-        host=env('DB_HOST'),
-        user=env('DB_USER'),
-        password=env('DB_PASSWORD')
+    env.read_env(path)
+
+    token = env("BOT_TOKEN")
+
+    if not token:
+        raise ValueError("BOT_TOKEN must not be empty")
+
+    raw_ids = env.int("ADMIN_IDS")
+
+    try:
+        admin_id = raw_ids
+    except ValueError as e:
+        raise ValueError(f"ADMIN_IDS must be integers, got: {raw_ids}") from e
+    
+    db = DatabaseSettings(
+        name=env("POSTGRES_DB"),
+        host=env("POSTGRES_HOST"),
+        port=env.int("POSTGRES_PORT"),
+        user=env("POSTGRES_USER"),
+        password=env("POSTGRES_PASSWORD"),
     )
-)
 
-# Выводим значения полей экземпляра класса Config на печать, 
-# чтобы убедиться, что все данные, получаемые из переменных окружения, доступны
-print('BOT_TOKEN:', config.bot.token)
-print('ADMIN_IDS:', config.bot.admin_ids)
-print()
-print('DB_NAME:', config.db.name)
-print('DB_HOST:', config.db.host)
-print('DB_USER:', config.db.user)
-print('DB_PASSWORD:', config.db.password)
+    #redis = RedisSettings(
+    #    host=env("REDIS_HOST"),
+    #    port=env.int("REDIS_PORT"),
+    #    db=env.int("REDIS_DATABASE"),
+    #    password=env("REDIS_PASSWORD", default=""),
+    #    username=env("REDIS_USERNAME", default=""),
+    #)
+
+    logg_settings = LoggSettings(
+        level=env("LOG_LEVEL"),
+        format=env("LOG_FORMAT")
+    )
+
+    logger.info("Configuration loaded successfully")
+
+    return Config(
+        bot=BotSettings(token=token, admin_id=admin_id),
+        db=db,
+        #redis=redis,
+        log=logg_settings
+    )

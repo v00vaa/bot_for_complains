@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>dbc7f6a9-d864-422f-800e-73f3b523dc4f</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>main.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -13,6 +12,7 @@
     <Name>bot_for_complains</Name>
     <RootNamespace>bot_for_complains</RootNamespace>
     <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
+    <TestFramework>Pytest</TestFramework>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -31,13 +31,29 @@
     <Compile Include="database\__init__.py" />
     <Compile Include="external_services\__init__.py" />
     <Compile Include="filters\is_admin.py" />
+    <Compile Include="filters\is_super_admin.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="filters\text_key.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="filters\__init__.py" />
     <Compile Include="handlers\admin.py" />
     <Compile Include="handlers\errors.py" />
+    <Compile Include="handlers\super_admin.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="handlers\user.py" />
     <Compile Include="handlers\__init__.py" />
-    <Compile Include="keyboards\keyboard_utils.py" />
-    <Compile Include="keyboards\set_menu.py" />
+    <Compile Include="keyboards\admin_keyboard.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="keyboards\super_admin_keyboard.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="keyboards\user_keyboard.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="keyboards\__init__.py" />
     <Compile Include="lexicon\lexicon_en.py" />
     <Compile Include="lexicon\lexicon_ru.py" />
@@ -46,7 +62,18 @@
     <Compile Include="middlewares\database.py" />
     <Compile Include="middlewares\i18n.py" />
     <Compile Include="middlewares\__init__.py" />
-    <Compile Include="services\services.py" />
+    <Compile Include="services\bug_analyzer.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\bug_formatter.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\notifications.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\roles.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="services\__init__.py" />
     <Compile Include="states\states.py" />
     <Compile Include="states\__init__.py" />
@@ -56,12 +83,14 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="config\" />
+    <Folder Include="config\data\" />
     <Folder Include="database\" />
     <Folder Include="external_services\" />
     <Folder Include="filters\" />
     <Folder Include="handlers\" />
     <Folder Include="keyboards\" />
     <Folder Include="lexicon\" />
+    <Folder Include="logs\" />
     <Folder Include="middlewares\" />
     <Folder Include="services\" />
     <Folder Include="states\" />
@@ -72,6 +101,9 @@
     <Content Include=".env" />
     <Content Include=".env.example" />
     <Content Include=".gitignore" />
+    <Content Include="config\data\admins.json" />
+    <Content Include="docker-compose.yml" />
+    <Content Include="logs\bot.log" />
     <Content Include="requirements.txt" />
   </ItemGroup>
   <ItemGroup>
