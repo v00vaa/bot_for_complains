@@ -361,3 +361,5 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/bot_for_complains/.env
+/bot_for_complains/config/data/admins.json
