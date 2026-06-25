@@ -2,16 +2,18 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    Boolean,
     DateTime,
     ForeignKey,
-    Integer,
     String,
     Text,
     func,
 )
-
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+)
 
 
 class Base(DeclarativeBase):
@@ -21,35 +23,111 @@ class Base(DeclarativeBase):
 class BugReport(Base):
     __tablename__ = "bug_reports"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-
-    user_id: Mapped[int] = mapped_column(BigInteger)
-
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text)
-
-    severity: Mapped[str] = mapped_column(String(20))
-    status: Mapped[str] = mapped_column(String(50))
-
-    report_file_id: Mapped[str] = mapped_column(String(255))
-    report_file_name: Mapped[str] = mapped_column(String(255))
-
-    assigned_admin_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        nullable=True
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
     )
-    assigned_admin_username: Mapped[str | None] = mapped_column(
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+    )
+
+    title: Mapped[str] = mapped_column(
         String(255),
-        nullable=True
+    )
+
+    severity: Mapped[str] = mapped_column(
+        String(20),
     )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
     )
 
-    updated_at: Mapped[datetime] = mapped_column(
+    versions: Mapped[list["BugVersion"]] = relationship(
+        back_populates="bug",
+        cascade="all, delete-orphan",
+        order_by="desc(BugVersion.version)",
+    )
+
+
+class BugVersion(Base):
+    __tablename__ = "bug_versions"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    bug_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "bug_reports.id",
+            ondelete="CASCADE",
+        )
+    )
+
+    version: Mapped[int] = mapped_column()
+
+    description: Mapped[str] = mapped_column(
+        Text,
+    )
+
+    report_file_id: Mapped[str] = mapped_column(
+        String(255),
+    )
+
+    report_file_name: Mapped[str] = mapped_column(
+        String(255),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now()
+    )
+
+    bug: Mapped["BugReport"] = relationship(
+        back_populates="versions",
+    )
+
+    statuses: Mapped[list["BugStatus"]] = relationship(
+        back_populates="version_ref",
+        cascade="all, delete-orphan",
+        order_by="desc(BugStatus.created_at)",
+    )
+
+
+class BugStatus(Base):
+    __tablename__ = "bug_statuses"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    bug_version_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "bug_versions.id",
+            ondelete="CASCADE",
+        )
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(50),
+    )
+
+    assigned_admin_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
+    assigned_admin_username: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+    version_ref: Mapped["BugVersion"] = relationship(
+        back_populates="statuses",
     )

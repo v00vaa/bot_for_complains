@@ -137,102 +137,110 @@ async def process_accept_bug(
     await callback.answer()
 
 # Этот хэндлер срабатывает на кнопку "список багов"
+PAGE_SIZE = 5
+
+
 @admin_router.message(
-    TextKeyFilter("bug_list"),
-    IsAdmin()
+    TextKeyFilter("bug_list")
 )
 async def process_bug_list(
     message: Message,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    logger.info(
-        "Администратор %s открыл список багов",
-        message.from_user.id,
+    page = 0
+
+    bugs = await get_bugs_page(
+        session=session,
+        page=page,
+        limit=PAGE_SIZE,
     )
-    bug = await get_bug_by_offset(
+
+    total = await get_bugs_count(
         session,
-        0,
     )
 
-    if bug is None:
-        logger.info(
-            "Список багов пуст"
-        )
-
+    if not bugs:
         await message.answer(
-            i18n["no_bugs_admin"]
+            i18n["no_bugs_admin"],
         )
         return
 
-    total = await get_bugs_count(
-        session
-    )
-
     await message.answer(
-        text=format_bug_card(bug, i18n),
-        reply_markup=get_bug_list_keyboard(
-            bug_id=bug.id,
-            index=0,
+        text=i18n["select_bug"],
+        reply_markup=get_admin_bug_list_keyboard(
+            bugs=bugs,
+            page=page,
             has_prev=False,
-            has_next=total > 1,
-            is_assigned_admin=(
-                bug.assigned_admin_id == message.from_user.id and bug.status == "in_progress"
-            ),
+            has_next=total > PAGE_SIZE,
             i18n=i18n,
-        )
+        ),
     )
 
-# Этот хэндлер срабатывает на кнопку ">>" в списке багов 
 @admin_router.callback_query(
-    F.data.startswith("bug_next:"),
-    IsAdmin()
+    F.data.startswith("admin_bug_page:")
 )
-async def process_next_bug(
+async def process_bug_page(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    current_index = int(
+    page = int(
         callback.data.split(":")[1]
     )
 
-    next_index = current_index + 1
-
-    logger.debug(
-        "Администратор %s перешел к багу с индексом %s",
-        callback.from_user.id,
-        next_index,
+    bugs = await get_bugs_page(
+        session=session,
+        page=page,
+        limit=PAGE_SIZE,
     )
-
-    bug = await get_bug_by_offset(
-        session,
-        next_index,
-    )
-
-    if bug is None:
-        await callback.answer()
-        return
 
     total = await get_bugs_count(
-        session
+        session,
     )
 
-    await callback.message.edit_text(
-        text=format_bug_card(bug, i18n),
-        reply_markup=get_bug_list_keyboard(
-            bug_id=bug.id,
-            index=next_index,
-            has_prev=next_index > 0,
-            has_next=next_index < total - 1,
-            is_assigned_admin=(
-                bug.assigned_admin_id == callback.from_user.id and bug.status == "in_progress"
+    await callback.message.edit_reply_markup(
+        reply_markup=get_admin_bug_list_keyboard(
+            bugs=bugs,
+            page=page,
+            has_prev=page > 0,
+            has_next=(
+                (page + 1) * PAGE_SIZE < total
             ),
             i18n=i18n,
         )
     )
 
     await callback.answer()
+
+@admin_router.message(
+    F.text.regexp(r"^\d+$"),
+    IsAdmin(),
+)
+async def process_bug_by_id(
+    message: Message,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(message.text)
+
+    bug = await get_bug_by_id(
+        session,
+        bug_id,
+    )
+
+    if bug is None:
+        await message.answer(
+            i18n["bug_not_found"]
+        )
+        return
+
+    await message.answer(
+        format_bug_card(
+            bug,
+            i18n,
+        )
+    )
 
 # Этот хэндлер срабатывает на кнопку 
 @admin_router.callback_query(

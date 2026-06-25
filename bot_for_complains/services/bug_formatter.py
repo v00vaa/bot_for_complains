@@ -1,4 +1,4 @@
-from database.models import BugReport
+from database.models import BugReport, BugStatus
 
 
 def get_status_text(
@@ -54,4 +54,15 @@ def format_user_bug_card(bug, i18n: dict[str, str],) -> str:
         f"{status_text}\n\n"
         f"{i18n['report']}: "
         f"{bug.report_file_name}\n\n"
+    )
+
+def format_bug_short(
+    bug: BugReport,
+    status: BugStatus,
+    i18n: dict[str, str],
+) -> str:
+    return (
+        f"#{bug.id} | "
+        f"{i18n.get(f'severity_{bug.severity}', bug.severity)} | "
+        f"{i18n.get(f'status_{status.status}', status.status)}"
     )

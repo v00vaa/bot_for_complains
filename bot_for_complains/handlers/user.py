@@ -330,12 +330,18 @@ async def process_bug_confirm(
     )
     bug.status = "closed"
 
-    await session.commit()
     logger.info(
-        "Баг #%s переведен в статус closed",
-        bug.id,
+            "Баг #%s переведен в статус closed",
+            bug.id,
+        )
+
+    await callback.message.edit_reply_markup(
+        reply_markup=None
     )
-    await callback.message.edit_reply_markup()
+    
+    await callback.answer()
+
+    await session.commit()
 
     await callback.message.answer(
         i18n["thank_you"]
@@ -372,15 +378,21 @@ async def process_bug_reject(
         callback.from_user.id,
         bug.id,
     )
+    bug.status = "reopened"
     bug.assigned_admin_id = None
     bug.assigned_admin_username = None
-
     await session.commit()
     logger.info(
         "Баг #%s возвращен в статус reopened",
         bug.id,
     )
-    await callback.message.edit_reply_markup()
+    await session.commit()
+
+    await callback.message.edit_reply_markup(
+        reply_markup=None
+    )
+
+    await callback.answer()
 
     await state.update_data(
         bug_id=bug.id,

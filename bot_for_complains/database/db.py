@@ -2,7 +2,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from .models import BugReport
+from .models import BugReport, BugStatus, BugVersion
 
 from services import generate_bug_title, determine_severity
 
@@ -10,36 +10,84 @@ from services import generate_bug_title, determine_severity
 logger = logging.getLogger(__name__)
 
 
+from sqlalchemy import case
+
+SEVERITY_ORDER = case(
+    (BugReport.severity == "not_set", 0),
+    (BugReport.severity == "critical", 1),
+    (BugReport.severity == "high", 2),
+    (BugReport.severity == "medium", 3),
+    (BugReport.severity == "low", 4),
+    else_=5,
+)
+
 async def create_bug(
-    session,
+    session: AsyncSession,
     user_id: int,
     description: str,
     file_id: str,
     file_name: str,
-) -> BugReport:
-
+):
     bug = BugReport(
         user_id=user_id,
         title=generate_bug_title(description),
-        description=description,
         severity=determine_severity(description),
-        status="new",
+    )
+
+    session.add(bug)
+    await session.flush()
+
+    version = BugVersion(
+        bug_id=bug.id,
+        version=1,
+        description=description,
         report_file_id=file_id,
         report_file_name=file_name,
     )
 
-    session.add(bug)
+    session.add(version)
+    await session.flush()
 
-    await session.commit()
-    await session.refresh(bug)
-
-    logger.info(
-        "Создан баг #%s пользователем %s",
-        bug.id,
-        user_id,
+    status = BugStatus(
+        bug_version_id=version.id,
+        status="new",
     )
 
+    session.add(status)
+
+    await session.commit()
+
     return bug
+
+async def get_actual_version(
+    session: AsyncSession,
+    bug_id: int,
+):
+    result = await session.execute(
+        select(BugVersion)
+        .where(BugVersion.bug_id == bug_id)
+        .order_by(BugVersion.version.desc())
+        .limit(1)
+    )
+
+    return result.scalar_one_or_none()
+
+async def get_actual_status(
+    session: AsyncSession,
+    version_id: int,
+):
+    result = await session.execute(
+        select(BugStatus)
+        .where(
+            BugStatus.bug_version_id == version_id
+        )
+        .order_by(
+            BugStatus.created_at.desc()
+        )
+        .limit(1)
+    )
+
+    return result.scalar_one_or_none()
 
 async def update_bug(
     session: AsyncSession,
@@ -48,27 +96,38 @@ async def update_bug(
     file_id: str,
     file_name: str,
 ):
-    bug = await get_bug_by_id(
+    current_version = await get_actual_version(
         session,
         bug_id,
     )
 
-    if bug is None:
+    if current_version is None:
         return None
 
-    bug.description = description
-    bug.report_file_id = file_id
-    bug.report_file_name = file_name
+    version = BugVersion(
+        bug_id=bug_id,
+        version=current_version.version + 1,
+        description=description,
+        report_file_id=file_id,
+        report_file_name=file_name,
+    )
 
-    bug.status = "reopened"
+    session.add(version)
+    await session.flush()
+
+    status = BugStatus(
+        bug_version_id=version.id,
+        status="new",
+    )
+
+    session.add(status)
 
     await session.commit()
-    await session.refresh(bug)
 
-    return bug
+    return version
 
 async def get_bug_by_id(
-    session,
+    session: AsyncSession,
     bug_id: int,
 ):
     result = await session.execute(
@@ -76,125 +135,170 @@ async def get_bug_by_id(
         .where(BugReport.id == bug_id)
     )
 
-    bug = result.scalar_one_or_none()
-
-    if bug is None:
-        logger.warning(
-            "Баг #%s не найден",
-            bug_id,
-        )
-
-    return bug
+    return result.scalar_one_or_none()
 
 async def accept_bug(
-    session,
+    session: AsyncSession,
     bug_id: int,
     admin_id: int,
-    admin_username: str
+    admin_username: str,
 ):
-    bug = await get_bug_by_id(
+    version = await get_actual_version(
         session,
-        bug_id
+        bug_id,
     )
 
-    if bug is None:
-        logger.warning(
-            "Не удалось принять баг #%s: не найден",
-            bug_id,
-        )
+    if version is None:
         return None
 
-    bug.assigned_admin_id =  admin_id
-    bug.assigned_admin_username = admin_username
-    bug.status = "in_progress"
+    status = BugStatus(
+        bug_version_id=version.id,
+        status="in_progress",
+        assigned_admin_id=admin_id,
+        assigned_admin_username=admin_username,
+    )
+
+    session.add(status)
 
     await session.commit()
 
-    logger.info(
-        "Баг #%s принят администратором %s (@%s)",
-        bug_id,
-        admin_id,
-        admin_username,
-    )
-
-    return bug
-
-async def get_bug_by_offset(
-    session: AsyncSession,
-    offset: int,
-) -> BugReport | None:
-    result = await session.execute(
-        select(BugReport)
-        .order_by(BugReport.created_at.desc())
-        .offset(offset)
-        .limit(1)
-    )
-
-    return result.scalar_one_or_none()
-
-from sqlalchemy import func
-
-
-async def get_bugs_count(
-    session: AsyncSession,
-) -> int:
-    result = await session.execute(
-        select(func.count(BugReport.id))
-    )
-
-    return result.scalar_one()
-
-async def get_user_bug_by_offset(
-    session: AsyncSession,
-    user_id: int,
-    offset: int,
-) -> BugReport | None:
-    result = await session.execute(
-        select(BugReport)
-        .where(BugReport.user_id == user_id)
-        .order_by(BugReport.created_at.desc())
-        .offset(offset)
-        .limit(1)
-    )
-
-    return result.scalar_one_or_none()
-
-
-async def get_user_bugs_count(
-    session: AsyncSession,
-    user_id: int,
-) -> int:
-    result = await session.execute(
-        select(func.count(BugReport.id))
-        .where(BugReport.user_id == user_id)
-    )
-
-    return result.scalar_one()
+    return version
 
 async def complete_bug_fix(
     session: AsyncSession,
     bug_id: int,
 ):
-    bug = await get_bug_by_id(
+    version = await get_actual_version(
         session,
         bug_id,
     )
 
-    if bug is None:
-        logger.warning(
-            "Не удалось завершить баг #%s: не найден",
-            bug_id,
-        )
+    if version is None:
         return None
 
-    bug.status = "waiting_confirmation"
+    last_status = await get_actual_status(
+        session,
+        version.id,
+    )
 
-    logger.info(
-        "Баг #%s переведен в статус waiting_confirmation",
+    status = BugStatus(
+        bug_version_id=version.id,
+        status="waiting_confirmation",
+        assigned_admin_id=last_status.assigned_admin_id,
+        assigned_admin_username=last_status.assigned_admin_username,
+    )
+
+    session.add(status)
+
+    await session.commit()
+
+    return version
+
+async def close_bug(
+    session: AsyncSession,
+    bug_id: int,
+):
+    version = await get_actual_version(
+        session,
         bug_id,
     )
 
-    await session.commit()
-    await session.refresh(bug)
+    if version is None:
+        return None
 
-    return bug
+    status = BugStatus(
+        bug_version_id=version.id,
+        status="closed",
+    )
+
+    session.add(status)
+
+    await session.commit()
+
+    return version
+
+from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
+
+from .models import (
+    BugReport,
+    BugStatus,
+    BugData,
+)
+
+
+async def get_bugs_list(
+    session: AsyncSession,
+) -> list[tuple[BugReport, BugStatus]]:
+    latest_status = (
+        select(
+            BugStatus.bug_id,
+            func.max(BugStatus.id).label("status_id"),
+        )
+        .group_by(BugStatus.bug_id)
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            BugReport,
+            BugStatus,
+        )
+        .join(
+            latest_status,
+            latest_status.c.bug_id == BugReport.id,
+        )
+        .join(
+            BugStatus,
+            BugStatus.id == latest_status.c.status_id,
+        )
+        .order_by(
+            SEVERITY_ORDER,
+            BugReport.id.desc(),
+        )
+    )
+
+    result = await session.execute(stmt)
+
+    return result.all()
+
+async def get_admin_bugs(
+    session: AsyncSession,
+    admin_id: int,
+) -> list[tuple[BugReport, BugStatus]]:
+    latest_status = (
+        select(
+            BugStatus.bug_id,
+            func.max(BugStatus.id).label("status_id"),
+        )
+        .group_by(BugStatus.bug_id)
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            BugReport,
+            BugStatus,
+        )
+        .join(
+            latest_status,
+            latest_status.c.bug_id == BugReport.id,
+        )
+        .join(
+            BugStatus,
+            BugStatus.id == latest_status.c.status_id,
+        )
+        .where(
+            BugStatus.assigned_admin_id == admin_id,
+            BugStatus.status == "in_progress",
+        )
+        .order_by(
+            SEVERITY_ORDER,
+            BugReport.id.desc(),
+        )
+    )
+
+    result = await session.execute(stmt)
+
+    return result.all()
+

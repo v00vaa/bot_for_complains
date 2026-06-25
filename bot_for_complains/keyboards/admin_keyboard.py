@@ -110,3 +110,54 @@ def get_bug_list_keyboard(
     return InlineKeyboardMarkup(
         inline_keyboard=keyboard
     )
+
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+
+
+def get_admin_bug_list_keyboard(
+    bugs: list,
+    page: int,
+    has_prev: bool,
+    has_next: bool,
+    i18n: dict[str, str],
+) -> InlineKeyboardMarkup:
+
+    keyboard = []
+
+    for bug in bugs:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"#{bug.id} | {bug.status}",
+                switch_inline_query_current_chat=str(
+                    bug.id
+                ),
+            )
+        ])
+
+    navigation_row = []
+
+    if has_prev:
+        navigation_row.append(
+            InlineKeyboardButton(
+                text=i18n["backward"],
+                callback_data=f"admin_bug_page:{page - 1}",
+            )
+        )
+
+    if has_next:
+        navigation_row.append(
+            InlineKeyboardButton(
+                text=i18n["forward"],
+                callback_data=f"admin_bug_page:{page + 1}",
+            )
+        )
+
+    if navigation_row:
+        keyboard.append(navigation_row)
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=keyboard
+    )
