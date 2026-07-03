@@ -26,7 +26,27 @@
     <Compile Include="config\config.py" />
     <Compile Include="config\__init__.py" />
     <Compile Include="database\connection.py" />
-    <Compile Include="database\db.py" />
+    <Compile Include="database\db\common.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\counters.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\create.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\pagination.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\queries.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\update.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\db\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="database\models.py" />
     <Compile Include="database\__init__.py" />
     <Compile Include="external_services\__init__.py" />
@@ -74,6 +94,21 @@
     <Compile Include="services\roles.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="services\training_scheduler.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\validator\markov.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\validator\normalize.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\validator\trainer.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="services\validator\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="services\__init__.py" />
     <Compile Include="states\states.py" />
     <Compile Include="states\__init__.py" />
@@ -85,6 +120,7 @@
     <Folder Include="config\" />
     <Folder Include="config\data\" />
     <Folder Include="database\" />
+    <Folder Include="database\db\" />
     <Folder Include="external_services\" />
     <Folder Include="filters\" />
     <Folder Include="handlers\" />
@@ -93,6 +129,7 @@
     <Folder Include="logs\" />
     <Folder Include="middlewares\" />
     <Folder Include="services\" />
+    <Folder Include="services\validator\" />
     <Folder Include="states\" />
     <Folder Include="tests\" />
     <Folder Include="utils\" />
@@ -102,6 +139,7 @@
     <Content Include=".env.example" />
     <Content Include=".gitignore" />
     <Content Include="config\data\admins.json" />
+    <Content Include="config\data\train.txt" />
     <Content Include="docker-compose.yml" />
     <Content Include="logs\bot.log" />
     <Content Include="requirements.txt" />

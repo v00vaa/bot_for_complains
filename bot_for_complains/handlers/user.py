@@ -1,15 +1,16 @@
 import logging
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.validator import MarkovValidator
 from states.states import CreateBug
-from keyboards import get_user_keyboard, get_bug_confirmation_keyboard, get_bug_details_keyboard, get_user_bug_keyboard
+from keyboards import get_bug_invalid_keyboard, get_cancel_keyboard, get_user_bug_list_keyboard, get_user_keyboard, get_bug_confirmation_keyboard, get_bug_details_keyboard, get_user_bug_keyboard
 from filters import TextKeyFilter
-from database import create_bug, get_user_bugs_count, get_user_bug_by_offset, get_bug_by_id, update_bug
+from database import close_bug, create_bug, get_bug_version_by_number, get_bug_versions_count, get_user_bug_page, get_user_bugs_count, get_user_bug_by_offset, get_bug_by_id, reopen_bug, update_bug, get_user_bug_page_count
 from services import notify_admins_about_bug, format_user_bug_card
 from services.roles import RolesStorage
 
@@ -45,36 +46,84 @@ async def process_report_bug(
         message.from_user.id,
     )
 
-    await state.set_state(
-        CreateBug.waiting_description
+    await state.set_state(CreateBug.waiting_description)
+
+    await state.update_data(
+        reopen=False,
     )
 
     await message.answer(
-        i18n["enter_description"]
+        i18n["enter_description"],
+        reply_markup=get_cancel_keyboard(i18n),
     )
 
+
+@user_router.message(
+    StateFilter(CreateBug),
+    Command("cancel"),
+)
+@user_router.message(
+    StateFilter(CreateBug),
+    TextKeyFilter("cancel"),
+)
+async def process_cancel_bug_creation(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    data = await state.get_data()
+
+    bug_id = data.get("bug_id")
+    reopen = data.get("reopen", False)
+    invalid = data.get("invalid", False)
+
+    await state.clear()
+
+    await message.answer(
+        i18n["creation_cancelled"],
+        reply_markup=get_user_keyboard(i18n),
+    )
+
+    if reopen and bug_id:
+        bug = await get_bug_by_id(session, bug_id)
+
+        if bug:
+            if invalid:
+                await message.answer(
+                    i18n["invalid_description_message"],
+                    reply_markup=get_bug_invalid_keyboard(bug.id, i18n),
+                )
+            else:
+                await message.answer(
+                    i18n["fix_completed_message"],
+                    reply_markup=get_bug_confirmation_keyboard(bug.id, i18n),
+                )
 
 @user_router.message(CreateBug.waiting_description)
 async def process_description(
     message: Message,
     state: FSMContext,
-    i18n: dict[str, str]
+    validator: MarkovValidator,
+    i18n: dict[str, str],
 ):
-    logger.info(
-        "Пользователь %s отправил описание проблемы",
-        message.from_user.id,
-    )
+    if not validator.validate(message.text):
+
+        await message.answer(
+            i18n["bad_description"],
+        )
+        return
 
     await state.update_data(
-        description=message.text
+        description=message.text,
     )
 
     await state.set_state(
-        CreateBug.waiting_report
+        CreateBug.waiting_report,
     )
 
     await message.answer(
-        i18n["attach_report"]
+        i18n["attach_report"],
     )
 
 
@@ -106,8 +155,6 @@ async def process_report_file(
         return
 
     data = await state.get_data()
-
-    description = data["description"]
 
     bug_id = data.get("bug_id")
 
@@ -155,7 +202,8 @@ async def process_report_file(
     await state.clear()
 
     await message.answer(
-        i18n["bug_registered"]
+        i18n["bug_registered"],
+        reply_markup=get_user_keyboard(i18n),
     )
 
 
@@ -169,135 +217,6 @@ async def process_wrong_file(
     await message.answer(
         i18n["send_valid_file"]
     )
-
-
-@user_router.message(
-    TextKeyFilter("status_bt")
-)
-async def process_status(
-    message: Message,
-    session: AsyncSession,
-    i18n: dict[str, str],
-):
-    logger.info(
-        "Пользователь %s запросил список своих багов",
-        message.from_user.id,
-    )
-
-    bug = await get_user_bug_by_offset(
-        session=session,
-        user_id=message.from_user.id,
-        offset=0,
-    )
-
-    if bug is None:
-        await message.answer(
-            i18n["no_bugs_user"]
-        )
-        return
-
-    total = await get_user_bugs_count(
-        session,
-        message.from_user.id,
-    )
-
-    await message.answer(
-    text=format_user_bug_card(bug, i18n),
-    reply_markup=get_user_bug_keyboard(
-        bug_id=bug.id,
-        status=bug.status,
-        index=0,
-        has_prev=False,
-        has_next=total > 1,
-        i18n=i18n,
-    )
-)
-
-@user_router.callback_query(
-    F.data.startswith("user_bug_next:")
-)
-async def process_next_user_bug(
-    callback: CallbackQuery,
-    session: AsyncSession,
-    i18n: dict[str, str],
-):
-    current_index = int(
-        callback.data.split(":")[1]
-    )
-
-    next_index = current_index + 1
-
-    bug = await get_user_bug_by_offset(
-        session=session,
-        user_id=callback.from_user.id,
-        offset=next_index,
-    )
-
-    if bug is None:
-        await callback.answer()
-        return
-
-    total = await get_user_bugs_count(
-        session,
-        callback.from_user.id,
-    )
-
-    await callback.message.edit_text(
-        text=format_user_bug_card(bug, i18n),
-        reply_markup=get_user_bug_keyboard(
-            bug_id=bug.id,
-            status=bug.status,
-            index=next_index,
-            has_prev=next_index > 0,
-            has_next=next_index < total - 1,
-            i18n=i18n,
-        )
-    )
-
-    await callback.answer()
-
-@user_router.callback_query(
-    F.data.startswith("user_bug_prev:")
-)
-async def process_prev_user_bug(
-    callback: CallbackQuery,
-    session: AsyncSession,
-    i18n: dict[str, str],
-):
-    current_index = int(
-        callback.data.split(":")[1]
-    )
-
-    prev_index = current_index - 1
-
-    if prev_index < 0:
-        await callback.answer()
-        return
-
-    bug = await get_user_bug_by_offset(
-        session=session,
-        user_id=callback.from_user.id,
-        offset=prev_index,
-    )
-
-    total = await get_user_bugs_count(
-        session,
-        callback.from_user.id,
-    )
-
-    await callback.message.edit_text(
-        text=format_user_bug_card(bug, i18n),
-        reply_markup=get_user_bug_keyboard(
-            bug_id=bug.id,
-            status=bug.status,
-            index=prev_index,
-            has_prev=prev_index > 0,
-            has_next=prev_index < total - 1,
-            i18n=i18n,
-        )
-    )
-
-    await callback.answer()
 
 @user_router.callback_query(
     F.data.startswith("bug_confirm:")
@@ -328,14 +247,18 @@ async def process_bug_confirm(
         callback.from_user.id,
         bug.id,
     )
-    bug.status = "closed"
+    bug = await close_bug(session, bug_id)
 
-    await session.commit()
     logger.info(
-        "Баг #%s переведен в статус closed",
-        bug.id,
+            "Баг #%s переведен в статус closed",
+            bug.id,
+        )
+
+    await callback.message.edit_reply_markup(
+        reply_markup=None
     )
-    await callback.message.edit_reply_markup()
+    
+    await callback.answer()
 
     await callback.message.answer(
         i18n["thank_you"]
@@ -372,18 +295,20 @@ async def process_bug_reject(
         callback.from_user.id,
         bug.id,
     )
-    bug.assigned_admin_id = None
-    bug.assigned_admin_username = None
-
-    await session.commit()
+    bug = await reopen_bug(session, bug_id)
     logger.info(
         "Баг #%s возвращен в статус reopened",
         bug.id,
     )
-    await callback.message.edit_reply_markup()
+    await callback.message.edit_reply_markup(
+        reply_markup=None
+    )
+
+    await callback.answer()
 
     await state.update_data(
         bug_id=bug.id,
+        reopen=True,
     )
 
     await state.set_state(
@@ -391,7 +316,247 @@ async def process_bug_reject(
     )
 
     await callback.message.answer(
-        i18n["enter_description"]
+        i18n["enter_description"],
+        reply_markup=get_cancel_keyboard(i18n),
+    )
+
+    await callback.answer()
+
+PAGE_SIZE = 5
+
+
+@user_router.message(TextKeyFilter("status_bt"))
+async def process_status(
+    message: Message,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bugs = await get_user_bug_page(
+        session=session,
+        user_id=message.from_user.id,
+        page=0,
+        page_size=PAGE_SIZE,
+    )
+
+    if not bugs:
+        await message.answer(
+            i18n["no_bugs_user"],
+        )
+        return
+
+    total_pages = await get_user_bug_page_count(
+        session,
+        message.from_user.id,
+        PAGE_SIZE,
+    )
+
+    await message.answer(
+        i18n["select_bug"],
+        reply_markup=get_user_bug_list_keyboard(
+            bugs=bugs,
+            page=0,
+            has_prev=False,
+            has_next=total_pages > 1,
+            i18n=i18n,
+        ),
+    )
+
+@user_router.callback_query(
+    F.data.startswith("user_bug_page:")
+)
+async def process_user_bug_page(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    page = int(callback.data.split(":")[1])
+
+    bugs = await get_user_bug_page(
+        session=session,
+        user_id=callback.from_user.id,
+        page=page,
+        page_size=PAGE_SIZE,
+    )
+
+    total_pages = await get_user_bug_page_count(
+        session,
+        callback.from_user.id,
+        PAGE_SIZE,
+    )
+
+    await callback.message.edit_reply_markup(
+        reply_markup=get_user_bug_list_keyboard(
+            bugs=bugs,
+            page=page,
+            has_prev=page > 0,
+            has_next=page + 1 < total_pages,
+            i18n=i18n,
+        )
+    )
+
+    await callback.answer()
+
+@user_router.callback_query(
+    F.data.startswith("user_bug_details:")
+)
+async def process_user_bug_details(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+
+    bug = await get_bug_by_id(
+        session,
+        bug_id,
+    )
+
+    if bug is None:
+        await callback.answer(
+            i18n["bug_not_found"],
+            show_alert=True,
+        )
+        return
+
+    if bug.user_id != callback.from_user.id:
+        await callback.answer(
+            show_alert=True,
+        )
+        return
+
+    versions_count = await get_bug_versions_count(
+        session,
+        bug.id,
+    )
+
+    await callback.message.edit_text(
+        text=format_user_bug_card(bug, i18n),
+        reply_markup=get_user_bug_keyboard(
+            bug_id=bug.id,
+            version=bug.version,
+            versions_count=versions_count,
+            status=bug.status,
+            i18n=i18n,
+        ),
+    )
+
+    await callback.answer()
+
+@user_router.callback_query(
+    F.data.startswith("user_bug_version_prev:")
+)
+async def process_prev_bug_version(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    _, bug_id, version = callback.data.split(":")
+
+    bug_id = int(bug_id)
+    version = int(version) - 1
+
+    bug = await get_bug_version_by_number(
+        session,
+        bug_id,
+        version,
+    )
+
+    versions_count = await get_bug_versions_count(
+        session,
+        bug_id,
+    )
+
+    await callback.message.edit_text(
+        text=format_user_bug_card(
+            bug,
+            i18n,
+        ),
+        reply_markup=get_user_bug_keyboard(
+            bug_id=bug_id,
+            version=version,
+            versions_count=versions_count,
+            status=bug.status,
+            i18n=i18n,
+        ),
+    )
+
+    await callback.answer()
+
+@user_router.callback_query(
+    F.data.startswith("user_bug_version_next:")
+)
+async def process_next_bug_version(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    _, bug_id, version = callback.data.split(":")
+
+    bug_id = int(bug_id)
+    version = int(version) + 1
+
+    bug = await get_bug_version_by_number(
+        session,
+        bug_id,
+        version,
+    )
+
+    versions_count = await get_bug_versions_count(
+        session,
+        bug_id,
+    )
+
+    await callback.message.edit_text(
+        text=format_user_bug_card(
+            bug,
+            i18n,
+        ),
+        reply_markup=get_user_bug_keyboard(
+            bug_id=bug_id,
+            version=version,
+            versions_count=versions_count,
+            status=bug.status,
+            i18n=i18n,
+        ),
+    )
+
+    await callback.answer()
+
+@user_router.callback_query(
+    F.data.startswith("rewrite_bug:")
+)
+async def process_rewrite_bug(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+
+    bug = await get_bug_by_id(
+        session,
+        bug_id,
+    )
+
+    if bug is None:
+        await callback.answer(
+            i18n["bug_not_found"],
+            show_alert=True,
+        )
+        return
+
+    await state.update_data(
+        bug_id=bug.id,
+        reopen=True,
+        invalid=True,
+    )
+
+    await state.set_state(
+        CreateBug.waiting_description,
+    )
+
+    await callback.message.answer(
+        i18n["enter_description"],
     )
 
     await callback.answer()

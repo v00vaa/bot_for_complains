@@ -15,9 +15,9 @@ from handlers import super_admin_router, admin_router, user_router#, error_route
 # Импортируем миддлвари
 from middlewares import TranslatorMiddleware, DatabaseMiddleware
 # Импортируем вспомогательные функции для создания нужных объектов
-from services import RolesStorage
+from services import RolesStorage, TrainingScheduler
 from database import create_db_session, create_tables
-
+from services.validator import MarkovValidator, train_validator
 # Инициализируем логгер
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,41 @@ async def main():
 
     await create_tables(engine)
 
+    # Инициализируем валидатор 
+    validator = MarkovValidator(
+        second_order_threshold=config.validator.second_order_threshold,
+        first_order_threshold=config.validator.first_order_threshold,
+        use_first_order=config.validator.fallback_enabled,
+        bypass=config.validator.bypass,
+    )
+    if (
+        config.validator.enabled
+        and config.validator.retrain_on_start
+    ):
+        async with session_factory() as session:
+            await train_validator(
+                validator=validator,
+                session=session,
+                train_file=config.validator.train_file,
+            )
+
+    training_scheduler = TrainingScheduler(
+        validator=validator,
+        session_factory=session_factory,
+        train_file=config.validator.train_file,
+        threshold=config.validator.retrain_after_changes,
+    )
+
+    if config.validator.enabled and config.validator.retrain_on_start:
+        logger.info("Обучение модели при запуске...")
+        await training_scheduler.retrain()
+
     # Помещаем нужные объекты в workflow_data диспетчера
     dp.workflow_data.update({
         "roles": roles_storage,
         "session_factory": session_factory,
+        "validator": validator,
+        "training_scheduler": training_scheduler,
     })
 
 

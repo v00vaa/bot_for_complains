@@ -1,3 +1,3 @@
-from .user_keyboard import get_user_keyboard, get_bug_confirmation_keyboard, get_user_bug_keyboard
-from .admin_keyboard import get_admin_keyboard, get_bug_card_keyboard, get_bug_details_keyboard, get_bug_list_keyboard
-from .super_admin_keyboard import get_super_admin_keyboard, get_add_admin_keyboard, get_remove_admin_keyboard
+from .user_keyboard import *
+from .admin_keyboard import *
+from .super_admin_keyboard import *
