@@ -80,55 +80,25 @@ async def process_cancel_bug_creation(
 
     await state.clear()
 
-    if reopen and bug_id:
-        bug = await get_bug_by_id(session, bug_id)
-
-        if invalid:
-            await message.answer(
-                i18n["invalid_description_message"],
-                reply_markup=get_bug_invalid_keyboard(
-                    bug.id,
-                    i18n,
-                ),
-            )
-        else:
-            await message.answer(
-                i18n["fix_completed_message"],
-                reply_markup=get_bug_confirmation_keyboard(
-                    bug.id,
-                    i18n,
-                ),
-            )
-
-        await message.answer(
-            i18n["main_menu"],
-            reply_markup=get_user_keyboard(i18n),
-        )
-
-        return
-
-    if reopen and bug_id:
-        bug = await get_bug_by_id(session, bug_id)
-
-        if bug:
-            await message.answer(
-                i18n["creation_cancelled"],
-                reply_markup=get_user_keyboard(i18n),
-            )
-            await message.answer(
-                i18n["fix_completed_message"],
-                reply_markup=get_bug_confirmation_keyboard(
-                    bug.id,
-                    i18n,
-                ),
-            )
-            return
-
     await message.answer(
         i18n["creation_cancelled"],
         reply_markup=get_user_keyboard(i18n),
     )
 
+    if reopen and bug_id:
+        bug = await get_bug_by_id(session, bug_id)
+
+        if bug:
+            if invalid:
+                await message.answer(
+                    i18n["invalid_description_message"],
+                    reply_markup=get_bug_invalid_keyboard(bug.id, i18n),
+                )
+            else:
+                await message.answer(
+                    i18n["fix_completed_message"],
+                    reply_markup=get_bug_confirmation_keyboard(bug.id, i18n),
+                )
 
 @user_router.message(CreateBug.waiting_description)
 async def process_description(
