@@ -1,143 +1,73 @@
-import logging
+﻿import logging
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import Config
+from database import (
+    BugView,
+    accept_bug,
+    complete_bug_fix,
+    get_admin_bugs_count,
+    get_admin_bugs_page,
+    get_bug_by_id,
+    get_bug_page,
+    get_bug_page_count,
+    get_bug_version_by_number,
+    get_bug_versions_count,
+    get_bugs_count,
+    get_bugs_page,
+    invalidate_bug,
+    set_bug_severity,
+    set_training_sample,
+)
 from filters import IsAdmin, TextKeyFilter
-from keyboards import get_bug_card_keyboard, get_admin_keyboard, get_bug_list_keyboard, get_bug_confirmation_keyboard
-from database import get_bug_by_id, accept_bug, get_bug_by_offset, get_bugs_count, complete_bug_fix
-from services import format_bug_card
+from keyboards import (
+    get_admin_bug_list_keyboard,
+    get_admin_keyboard,
+    get_bug_card_keyboard,
+    get_bug_confirmation_keyboard,
+)
+from services import TrainingScheduler, format_bug_card, retrain_validator
+from services.validator import MarkovValidator
 
 logger = logging.getLogger(__name__)
 
 admin_router = Router()
+PAGE_SIZE = 5
 
-# Этот хэндлер срабатывает на команду /start администратора 
-@admin_router.message(CommandStart(), IsAdmin())
-async def process_start_command(message: Message, i18n: dict[str, str]):
-    
-    await message.answer(
-        text=i18n.get("/start_admin"),
-        reply_markup=get_admin_keyboard(i18n)
-    )
 
-@admin_router.callback_query(
-    F.data.startswith("bug_details:"),
-    IsAdmin()
-)
-async def process_bug_details(
-    callback: CallbackQuery,
+def _is_assigned_admin(bug, admin_id: int) -> bool:
+    return bug.status == "in_progress" and bug.assigned_admin_id == admin_id
+
+
+async def _get_bug_keyboard(
     session: AsyncSession,
+    bug: BugView,
+    admin_id: int,
     i18n: dict[str, str],
 ):
-    bug_id = int(
-        callback.data.split(":")[1]
+    newest_version = await get_bug_versions_count(session, bug.id)
+    return get_bug_card_keyboard(
+        bug_id=bug.id,
+        version=bug.version,
+        oldest_version=1,
+        newest_version=newest_version,
+        is_assigned_admin=_is_assigned_admin(bug, admin_id),
+        i18n=i18n,
+        is_training_sample=bug.is_training_sample
     )
 
-    logger.info(
-        "Администратор %s запросил детали бага #%s",
-        callback.from_user.id,
-        bug_id,
+
+@admin_router.message(CommandStart(), IsAdmin())
+async def process_start_command(message: Message, i18n: dict[str, str]):
+    logger.info("Admin %s started bot", message.from_user.id)
+    await message.answer(
+        text=i18n["/start_admin"],
+        reply_markup=get_admin_keyboard(i18n),
     )
-
-    bug = await get_bug_by_id(
-        session,
-        bug_id,
-    )
-
-    if bug is None:
-        logger.warning(
-            "Баг #%s не найден при просмотре администратором %s",
-            bug_id,
-            callback.from_user.id,
-        )
-
-        await callback.answer(
-            i18n["bug_not_found"],
-            show_alert=True,
-        )
-        return
-
-    if bug.report_file_id:
-        await callback.bot.send_document(
-            chat_id=callback.from_user.id,
-            document=bug.report_file_id,
-        )
-
-    await callback.message.answer(
-        text=format_bug_card(
-            bug,
-            i18n,
-        ),
-        reply_markup=get_bug_card_keyboard(
-            bug.id,
-            i18n,
-        ),
-    )
-
-    await callback.answer()
-
-# Этот хэндлер срабатывает на кнопку "Принимаю в работу"
-@admin_router.callback_query(
-    F.data.startswith("accept_bug:"),
-    IsAdmin()
-)
-async def process_accept_bug(
-    callback: CallbackQuery,
-    session,
-    i18n: dict[str, str]
-):
-    bug_id = int(callback.data.split(":")[1])
-
-    logger.info(
-        "Администратор %s пытается взять баг #%s в работу",
-        callback.from_user.id,
-        bug_id,
-    )
-
-    bug = await accept_bug(
-        session=session,
-        bug_id=bug_id,
-        admin_id=callback.from_user.id,
-        admin_username=callback.from_user.username
-    )
-
-    if bug is None:
-        logger.warning(
-            "Не удалось назначить баг #%s: не найден",
-            bug_id,
-        )
-
-        await callback.answer(
-            i18n.get("bug_not_found", "Баг не найден"),
-            show_alert=True
-        )
-        return
-
-    logger.info(
-        "Баг #%s назначен администратору %s (@%s)",
-        bug.id,
-        callback.from_user.id,
-        callback.from_user.username,
-    )
-
-    await callback.message.edit_text(
-        text=format_bug_card(
-            bug,
-            i18n,
-        )
-    )
-
-    await callback.answer(
-        i18n["bug_accepted"]
-    )
-
-    await callback.answer()
-
-# Этот хэндлер срабатывает на кнопку "список багов"
-PAGE_SIZE = 5
 
 
 @admin_router.message(
@@ -148,16 +78,10 @@ async def process_bug_list(
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    page = 0
-
-    bugs = await get_bugs_page(
+    bugs = await get_bug_page(
         session=session,
-        page=page,
-        limit=PAGE_SIZE,
-    )
-
-    total = await get_bugs_count(
-        session,
+        page=0,
+        page_size=PAGE_SIZE,
     )
 
     if not bugs:
@@ -166,28 +90,32 @@ async def process_bug_list(
         )
         return
 
+    total_pages = await get_bug_page_count(
+        session,
+        PAGE_SIZE,
+    )
+
     await message.answer(
-        text=i18n["select_bug"],
+        i18n["select_bug"],
         reply_markup=get_admin_bug_list_keyboard(
             bugs=bugs,
-            page=page,
+            page=0,
             has_prev=False,
-            has_next=total > PAGE_SIZE,
+            has_next=total_pages > 1,
+            show_my_bugs=False,
             i18n=i18n,
         ),
     )
 
 @admin_router.callback_query(
-    F.data.startswith("admin_bug_page:")
+    F.data.startswith("all_bug_page:")
 )
-async def process_bug_page(
+async def process_all_bug_page(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    page = int(
-        callback.data.split(":")[1]
-    )
+    page = int(callback.data.split(":")[1])
 
     bugs = await get_bugs_page(
         session=session,
@@ -195,177 +123,258 @@ async def process_bug_page(
         limit=PAGE_SIZE,
     )
 
-    total = await get_bugs_count(
-        session,
-    )
+    total = await get_bugs_count(session)
 
     await callback.message.edit_reply_markup(
         reply_markup=get_admin_bug_list_keyboard(
             bugs=bugs,
             page=page,
             has_prev=page > 0,
-            has_next=(
-                (page + 1) * PAGE_SIZE < total
-            ),
+            has_next=(page + 1) * PAGE_SIZE < total,
+            show_my_bugs=False,
             i18n=i18n,
         )
     )
 
     await callback.answer()
 
-@admin_router.message(
-    F.text.regexp(r"^\d+$"),
-    IsAdmin(),
+@admin_router.callback_query(
+    F.data.startswith("my_bug_page:")
 )
+async def process_my_bug_page(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    page = int(callback.data.split(":")[1])
+
+    bugs = await get_admin_bugs_page(
+        session=session,
+        admin_id=callback.from_user.id,
+        page=page,
+        limit=PAGE_SIZE,
+    )
+
+    total = await get_admin_bugs_count(
+        session=session,
+        admin_id=callback.from_user.id,
+    )
+
+    if not bugs:
+        await callback.answer(
+            i18n["no_my_bugs"],
+            show_alert=True,
+        )
+        return
+
+    await callback.message.edit_reply_markup(
+        reply_markup=get_admin_bug_list_keyboard(
+            bugs=bugs,
+            page=page,
+            has_prev=page > 0,
+            has_next=(page + 1) * PAGE_SIZE < total,
+            show_my_bugs=True,
+            i18n=i18n,
+        )
+    )
+
+    await callback.answer()
+
+
+@admin_router.callback_query(F.data.startswith("bug_details:"), IsAdmin())
+async def process_bug_details(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+    bug = await get_bug_by_id(session, bug_id)
+
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
+        return
+
+    logger.info("Admin %s opened bug #%s", callback.from_user.id, bug_id)
+    await callback.message.answer(
+        text=format_bug_card(bug, i18n),
+        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
+    )
+    await callback.answer()
+
+
+@admin_router.message(F.text.regexp(r"^\d+$"), IsAdmin())
 async def process_bug_by_id(
     message: Message,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
     bug_id = int(message.text)
-
-    bug = await get_bug_by_id(
-        session,
-        bug_id,
-    )
+    bug = await get_bug_by_id(session, bug_id)
 
     if bug is None:
-        await message.answer(
-            i18n["bug_not_found"]
-        )
+        await message.answer(i18n["bug_not_found"])
         return
 
+    logger.info("Admin %s opened bug #%s by id", message.from_user.id, bug_id)
     await message.answer(
-        format_bug_card(
-            bug,
-            i18n,
-        )
+        text=format_bug_card(bug, i18n),
+        reply_markup=await _get_bug_keyboard(session, bug, message.from_user.id, i18n),
     )
 
-# Этот хэндлер срабатывает на кнопку 
-@admin_router.callback_query(
-    F.data.startswith("bug_prev:"),
-    IsAdmin()
-)
-async def process_prev_bug(
+
+@admin_router.callback_query(F.data.startswith("bug_version:"), IsAdmin())
+async def process_bug_version(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    current_index = int(
-        callback.data.split(":")[1]
-    )
+    _, bug_id, version = callback.data.split(":")
+    bug = await get_bug_version_by_number(session, int(bug_id), int(version))
 
-    prev_index = current_index - 1
-
-    logger.debug(
-        "Администратор %s вернулся к багу с индексом %s",
-        callback.from_user.id,
-        prev_index,
-    )
-
-    if prev_index < 0:
-        await callback.answer()
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
         return
 
-    bug = await get_bug_by_offset(
-        session,
-        prev_index,
+    logger.info(
+        "Admin %s opened bug #%s version %s",
+        callback.from_user.id,
+        bug_id,
+        version,
     )
-
-    total = await get_bugs_count(
-        session
-    )
-
     await callback.message.edit_text(
         text=format_bug_card(bug, i18n),
-        reply_markup=get_bug_list_keyboard(
-            bug_id=bug.id,
-            index=prev_index,
-            has_prev=prev_index > 0,
-            has_next=prev_index < total - 1,
-            is_assigned_admin=(
-                bug.assigned_admin_id == callback.from_user.id and bug.status == "in_progress"
-            ),
-            i18n=i18n,
-        )
+        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
     )
-
     await callback.answer()
 
-# Этот хэндлер срабатывает на  кнопку 
-@admin_router.callback_query(
-    F.data.startswith("report_file:"),
-    IsAdmin()
-)
+
+@admin_router.callback_query(F.data.startswith("report_file:"), IsAdmin())
 async def process_report_file(
     callback: CallbackQuery,
     session: AsyncSession,
-    i18n: dict[str, str]
+    i18n: dict[str, str],
 ):
-    bug_id = int(
-        callback.data.split(":")[1]
+    parts = callback.data.split(":")
+    bug_id = int(parts[1])
+    version = int(parts[2]) if len(parts) > 2 else None
+    bug = (
+        await get_bug_version_by_number(session, bug_id, version)
+        if version
+        else await get_bug_by_id(session, bug_id)
     )
 
-    logger.info(
-        "Администратор %s запросил файл отчета для бага #%s",
-        callback.from_user.id,
-        bug_id,
-    )
-
-    bug = await get_bug_by_id(
-        session,
-        bug_id,
-    )
-
-    if not bug:
-        logger.warning(
-        "Баг #%s не найден при просмотре администратором %s отчета",
-        bug_id,
-        callback.from_user.id,
-    )
-
-        await callback.answer(
-            i18n.get("bug_not_found", "Баг не найден"),
-            show_alert=True,
-        )
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
         return
 
+    logger.info(
+        "Admin %s requested file for bug #%s version %s",
+        callback.from_user.id,
+        bug_id,
+        bug.version,
+    )
     await callback.bot.send_document(
         chat_id=callback.from_user.id,
         document=bug.report_file_id,
     )
-
-    logger.info(
-        "Файл '%s' по багу #%s отправлен администратору %s",
-        bug.report_file_name,
-        bug.id,
-        callback.from_user.id,
-    )
-
     await callback.answer()
 
-# Этот хэндлер срабатывает на кнопку 
-@admin_router.callback_query(
-    F.data.startswith("complete_fix:"),
-    IsAdmin()
-)
+
+@admin_router.callback_query(F.data.startswith("accept_bug:"), IsAdmin())
+async def process_accept_bug(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+    bug = await accept_bug(
+        session=session,
+        bug_id=bug_id,
+        admin_id=callback.from_user.id,
+        admin_username=callback.from_user.username,
+    )
+
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
+        return
+
+    logger.info("Admin %s accepted bug #%s", callback.from_user.id, bug_id)
+    await callback.message.edit_text(
+        text=format_bug_card(bug, i18n),
+        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
+    )
+    await callback.answer(i18n["bug_accepted"])
+
+
+@admin_router.callback_query(F.data.startswith("complete_fix:"), IsAdmin())
 async def process_complete_fix(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
 ):
-    bug_id = int(
-        callback.data.split(":")[1]
+    bug_id = int(callback.data.split(":")[1])
+    bug = await get_bug_by_id(session, bug_id)
+
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
+        return
+
+    if bug.assigned_admin_id != callback.from_user.id:
+        await callback.answer(i18n["access_denied"], show_alert=True)
+        return
+
+    bug = await complete_bug_fix(session, bug_id)
+    logger.info("Admin %s completed bug #%s", callback.from_user.id, bug_id)
+
+    await callback.bot.send_message(
+        chat_id=bug.user_id,
+        text=i18n["fix_completed_message"],
+        reply_markup=get_bug_confirmation_keyboard(bug_id, i18n),
     )
+    await callback.message.edit_text(
+        text=format_bug_card(bug, i18n),
+        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
+    )
+    await callback.answer(i18n["fix_completed"])
+
+
+@admin_router.callback_query(F.data.startswith("set_severity:"), IsAdmin())
+async def process_set_severity(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    _, bug_id, severity = callback.data.split(":")
+    bug = await set_bug_severity(session, int(bug_id), severity)
+
+    if bug is None:
+        await callback.answer(i18n["bug_not_found"], show_alert=True)
+        return
 
     logger.info(
-        "Администратор %s завершает исправление бага #%s",
+        "Admin %s set severity '%s' for bug #%s",
         callback.from_user.id,
+        severity,
         bug_id,
     )
+    await callback.message.edit_text(
+        text=format_bug_card(bug, i18n),
+        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
+    )
+    await callback.answer(i18n["severity_updated"])
 
-    bug = await get_bug_by_id(
+@admin_router.callback_query(
+    F.data.startswith("invalid_bug:"),
+    IsAdmin(),
+)
+async def process_invalid_bug(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+
+    bug = await invalidate_bug(
         session,
         bug_id,
     )
@@ -377,50 +386,133 @@ async def process_complete_fix(
         )
         return
 
-    if bug.assigned_admin_id != callback.from_user.id:
-        logger.warning(
-            "Администратор %s попытался завершить чужой баг #%s. Назначен: %s",
-            callback.from_user.id,
-            bug_id,
-            bug.assigned_admin_id,
-        )
+    await callback.bot.send_message(
+        chat_id=bug.user_id,
+        text=i18n["invalid_description_message"],
+        reply_markup=get_bug_confirmation_keyboard(
+            bug.id,
+            i18n,
+        ),
+    )
 
+    await callback.message.edit_text(
+        format_bug_card(
+            bug,
+            i18n,
+        ),
+        reply_markup=await _get_bug_keyboard(
+            session,
+            bug,
+            callback.from_user.id,
+            i18n,
+        ),
+    )
+
+    await callback.answer()
+
+@admin_router.callback_query(
+    F.data.startswith("training_add:")
+)
+async def process_training_add(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+    validator: MarkovValidator,
+    training_scheduler: TrainingScheduler,
+    session_factory,
+):
+    _, bug_id, version = callback.data.split(":")
+
+    bug = await get_bug_version_by_number(
+        session,
+        int(bug_id),
+        int(version),
+    )
+
+    if bug is None:
         await callback.answer(
-            i18n["access_denied"],
+            i18n["bug_not_found"],
             show_alert=True,
         )
         return
 
-    bug = await complete_bug_fix(
+    changed = await set_training_sample(
         session,
-        bug_id,
+        bug.bug_data_id,
+        True,
     )
 
-    logger.info(
-        "Баг #%s переведен в статус waiting_confirmation",
-        bug.id,
+    if changed:
+        await training_scheduler.notify_change()
+        bug = await get_bug_version_by_number(
+            session,
+            int(bug_id),
+            int(version),
+        )
+
+    await callback.message.edit_reply_markup(
+        reply_markup=await _get_bug_keyboard(
+            session,
+            bug,
+            callback.from_user.id,
+            i18n,
+        ),
     )
-
-    try:
-        await callback.bot.send_message(
-            chat_id=bug.user_id,
-            text=i18n["fix_completed_message"],
-            reply_markup=get_bug_confirmation_keyboard(bug_id, i18n),
-        )
-
-        logger.info(
-            "Уведомление о завершении бага #%s отправлено пользователю %s",
-            bug.id,
-            bug.user_id,
-        )
-
-    except Exception:
-        logger.exception(
-            "Не удалось отправить уведомление пользователю %s по багу #%s",
-            bug.user_id,
-            bug.id,
-        )
 
     await callback.answer(
-        i18n["fix_completed"]
+        i18n["added_to_training"],
+    )
+
+@admin_router.callback_query(
+    F.data.startswith("training_remove:")
+)
+async def process_training_remove(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+    validator: MarkovValidator,
+    training_scheduler: TrainingScheduler,
+    session_factory,
+):
+    _, bug_id, version = callback.data.split(":")
+
+    bug = await get_bug_version_by_number(
+        session,
+        int(bug_id),
+        int(version),
+    )
+
+    if bug is None:
+        await callback.answer(
+            i18n["bug_not_found"],
+            show_alert=True,
+        )
+        return
+
+    changed = await set_training_sample(
+        session,
+        bug.bug_data_id,
+        False,
+    )
+
+    if changed:
+        await training_scheduler.notify_change()
+
+        bug = await get_bug_version_by_number(
+            session,
+            int(bug_id),
+            int(version),
+        )
+
+    await callback.message.edit_reply_markup(
+        reply_markup=await _get_bug_keyboard(
+            session,
+            bug,
+            callback.from_user.id,
+            i18n,
+        ),
+    )
+
+    await callback.answer(
+        i18n["removed_from_training"],
     )

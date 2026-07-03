@@ -3,9 +3,8 @@ import logging
 
 from aiogram import Bot
 
-from keyboards.admin_keyboard import (
-    get_bug_details_keyboard,
-)
+from keyboards.admin_keyboard import get_bug_notification_keyboard
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ async def notify_admins_about_bug(
             await bot.send_message(
                 chat_id=admin_id,
                 text=i18n["new_bug"],
-                reply_markup=get_bug_details_keyboard(
+                reply_markup=get_bug_notification_keyboard(
                     bug_id,
                     i18n,
                 ),

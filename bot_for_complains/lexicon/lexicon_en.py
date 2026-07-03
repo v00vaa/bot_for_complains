@@ -1,4 +1,4 @@
-LEXICON = {
+﻿LEXICON = {
     "forward": ">>",
     "backward": "<<",
 
@@ -69,8 +69,8 @@ LEXICON = {
     "report": "Report",
     "user": "User",
 
-    "report_file": "📄 Report",
-    "complete_fix": "✅ Complete Fix",
+    "report_file": "рџ“„ Report",
+    "complete_fix": "вњ… Complete Fix",
 
     "fix_completed": "User has been notified",
 
@@ -90,4 +90,19 @@ LEXICON = {
     "thank_you": (
         "Thank you for choosing our system"
     ),
-}
+    "cancel": "Cancel",
+    "creation_cancelled": "Report creation cancelled.",
+    "select_bug": "Select a report or tap its number to insert the id into the input field.",
+    "bug_number": "Report",
+    "version": "Version",
+    "older_version": "Older",
+    "newer_version": "Newer",
+    "status_assigned_to": "assigned to",
+    "severity_not_set": "Not set",
+    "severity_critical": "Critical",
+    "severity_high": "High",
+    "severity_medium": "Medium",
+    "severity_low": "Low",
+    "severity_updated": "Severity updated",
+    "history_empty": "Version history is empty",}
+
