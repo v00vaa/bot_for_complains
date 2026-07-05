@@ -1,4 +1,22 @@
+"""
+Функции постраничного получения обращений.
 
+Назначение
+----------
+Модуль содержит запросы, используемые для формирования списков обращений,
+отображаемых пользователям и администраторам.
+
+Реализованы выборки:
+
+    • общего списка обращений;
+    • списка обращений пользователя;
+    • списка обращений администратора;
+    • получения обращения по смещению (служебные функции).
+
+Во всех запросах используется _current_bug_stmt(), благодаря чему
+возвращается только актуальное состояние каждого обращения
+(последняя версия описания и последний статус).
+"""
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import BugReport, BugStatus
@@ -15,6 +33,18 @@ async def get_bugs_page(
     page: int,
     limit: int,
 ) -> list[BugView]:
+    """
+    Возвращает страницу общего списка обращений.
+
+    Список сортируется:
+
+        1. по уровню критичности;
+        2. по идентификатору обращения
+           (новые обращения отображаются первыми).
+
+    Используется администраторами при просмотре
+    всех зарегистрированных обращений.
+    """
     result = await session.execute(
         _current_bug_stmt()
         .order_by(_severity_order_expr(), BugReport.id.desc())
@@ -28,6 +58,12 @@ async def get_bug_page(
     page: int,
     page_size: int,
 ) -> list[BugView]:
+    """
+    Совместимый интерфейс получения страницы обращений.
+
+    Представляет собой обертку над get_bugs_page(),
+    сохранившую прежнее название функции.
+    """
     return await get_bugs_page(
         session=session,
         page=page,
@@ -39,6 +75,13 @@ async def get_bug_by_offset(
     session: AsyncSession,
     offset: int,
 ) -> BugView | None:
+    """
+    Возвращает обращение по абсолютному смещению.
+
+    Использовалось в предыдущей реализации навигации.
+
+    В текущей версии проекта не применяется
+    """
     result = await session.execute(
         _current_bug_stmt()
         .order_by(_severity_order_expr(), BugReport.id.desc())
@@ -53,6 +96,13 @@ async def get_user_bug_by_offset(
     user_id: int,
     offset: int,
 ) -> BugView | None:
+    """
+    Возвращает обращение пользователя
+    по абсолютному смещению.
+
+    Аналогично get_bug_by_offset(),
+    использовалось старой системой навигации.
+    """
     result = await session.execute(
         _current_bug_stmt()
         .where(BugReport.user_id == user_id)
@@ -69,6 +119,18 @@ async def get_admin_bugs_page(
     page: int,
     limit: int,
 ) -> list[BugView]:
+    """
+    Возвращает страницу обращений,
+    назначенных конкретному администратору.
+
+    В выборку попадают только обращения,
+    находящиеся в статусе "in_progress".
+
+    Сортировка выполняется сначала по критичности,
+    затем по времени создания обращения.
+    """
+    # Показываем только обращения,
+    # закрепленные за данным администратором.
     result = await session.execute(
         _current_bug_stmt()
         .where(
@@ -94,6 +156,14 @@ async def get_user_bug_page(
     page: int,
     page_size: int,
 ) -> list[BugView]:
+    """
+    Возвращает страницу обращений пользователя.
+
+    Используется в личном кабинете пользователя
+    для просмотра истории зарегистрированных обращений.
+
+    Сначала отображаются наиболее новые обращения.
+    """
     result = await session.execute(
         _current_bug_stmt()
         .where(BugReport.user_id == user_id)

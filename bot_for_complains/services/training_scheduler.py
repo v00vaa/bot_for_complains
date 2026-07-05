@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from services.validator import train_validator
+from services.bug_description_model import train_bug_description_model
 
 logger = logging.getLogger(__name__)
 
@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 class TrainingScheduler:
     def __init__(
         self,
-        validator,
+        bug_description_model,
         session_factory,
         train_file: str,
         threshold: int,
     ):
-        self.validator = validator
+        self.bug_description_model = bug_description_model
         self.session_factory = session_factory
         self.train_file = train_file
 
@@ -35,8 +35,8 @@ class TrainingScheduler:
             logger.info("Начато обучение валидатора")
 
             async with self.session_factory() as session:
-                await train_validator(
-                    self.validator,
+                await train_bug_description_model(
+                    self.bug_description_model,
                     session,
                     self.train_file,
                 )

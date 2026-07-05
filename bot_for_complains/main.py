@@ -17,7 +17,7 @@ from middlewares import TranslatorMiddleware, DatabaseMiddleware
 # Импортируем вспомогательные функции для создания нужных объектов
 from services import RolesStorage, TrainingScheduler
 from database import create_db_session, create_tables
-from services.validator import MarkovValidator, train_validator
+from services.bug_description_model import MarkovModel, train_bug_description_model
 # Инициализируем логгер
 logger = logging.getLogger(__name__)
 
@@ -68,31 +68,31 @@ async def main():
     await create_tables(engine)
 
     # Инициализируем валидатор 
-    validator = MarkovValidator(
-        second_order_threshold=config.validator.second_order_threshold,
-        first_order_threshold=config.validator.first_order_threshold,
-        use_first_order=config.validator.fallback_enabled,
-        bypass=config.validator.bypass,
+    bug_description_model = MarkovModel(
+        second_order_threshold=config.bug_description_model.second_order_threshold,
+        first_order_threshold=config.bug_description_model.first_order_threshold,
+        use_first_order=config.bug_description_model.fallback_enabled,
+        bypass=config.bug_description_model.bypass,
     )
     if (
-        config.validator.enabled
-        and config.validator.retrain_on_start
+        config.bug_description_model.enabled
+        and config.bug_description_model.retrain_on_start
     ):
         async with session_factory() as session:
-            await train_validator(
-                validator=validator,
+            await train_bug_description_model(
+                bug_description_model=bug_description_model,
                 session=session,
-                train_file=config.validator.train_file,
+                train_file=config.bug_description_model.train_file,
             )
 
     training_scheduler = TrainingScheduler(
-        validator=validator,
+        bug_description_model=bug_description_model,
         session_factory=session_factory,
-        train_file=config.validator.train_file,
-        threshold=config.validator.retrain_after_changes,
+        train_file=config.bug_description_model.train_file,
+        threshold=config.bug_description_model.retrain_after_changes,
     )
 
-    if config.validator.enabled and config.validator.retrain_on_start:
+    if config.bug_description_model.enabled and config.bug_description_model.retrain_on_start:
         logger.info("Обучение модели при запуске...")
         await training_scheduler.retrain()
 
@@ -100,7 +100,7 @@ async def main():
     dp.workflow_data.update({
         "roles": roles_storage,
         "session_factory": session_factory,
-        "validator": validator,
+        "bug_description_model": bug_description_model,
         "training_scheduler": training_scheduler,
     })
 

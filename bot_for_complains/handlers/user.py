@@ -6,12 +6,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.validator import MarkovValidator
+from services.bug_description_model import MarkovModel
 from states.states import CreateBug
 from keyboards import get_bug_invalid_keyboard, get_cancel_keyboard, get_user_bug_list_keyboard, get_user_keyboard, get_bug_confirmation_keyboard, get_bug_details_keyboard, get_user_bug_keyboard
 from filters import TextKeyFilter
-from database import close_bug, create_bug, get_bug_version_by_number, get_bug_versions_count, get_user_bug_page, get_user_bugs_count, get_user_bug_by_offset, get_bug_by_id, reopen_bug, update_bug, get_user_bug_page_count
+from database import close_bug, create_bug, get_bug_version_by_number, get_bug_versions_count, get_user_bug_page, get_user_bug_by_offset, get_bug_by_id, reopen_bug, update_bug, get_user_bug_page_count
 from services import notify_admins_about_bug, format_user_bug_card
+from services.bug_description_logger import bug_description_logger
 from services.roles import RolesStorage
 
 logger = logging.getLogger(__name__)
@@ -104,10 +105,18 @@ async def process_cancel_bug_creation(
 async def process_description(
     message: Message,
     state: FSMContext,
-    validator: MarkovValidator,
+    bug_description_model: MarkovModel,
     i18n: dict[str, str],
 ):
-    if not validator.validate(message.text):
+    if not bug_description_model.validate(message.text):
+
+        bug_description_logger.info(
+            message.text,
+            extra={
+                "user_id": message.from_user.id,
+                "username": message.from_user.username or "-",
+            },
+        )
 
         await message.answer(
             i18n["bad_description"],

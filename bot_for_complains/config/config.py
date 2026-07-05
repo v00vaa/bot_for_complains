@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BotSettings:
     token: str
-    admin_id: int
+    admin_id: str
 
 @dataclass
 class DatabaseSettings:
@@ -43,7 +43,7 @@ class LoggSettings:
     format: str
 
 @dataclass
-class ValidatorConfig:
+class BugDescriptionModelConfig:
     enabled: bool
     bypass: bool
     fallback_enabled: bool
@@ -64,7 +64,7 @@ class Config:
     db: DatabaseSettings
     #redis: RedisSettings
     log: LoggSettings
-    validator: ValidatorConfig
+    bug_description_model: BugDescriptionModelConfig
 
 
 def load_config(path: str | None = None) -> Config:
@@ -83,12 +83,12 @@ def load_config(path: str | None = None) -> Config:
     if not token:
         raise ValueError("BOT_TOKEN must not be empty")
 
-    raw_ids = env.int("ADMIN_IDS")
+    raw_id = env.str("ADMIN_ID")
 
     try:
-        admin_id = raw_ids
+        admin_id = int(raw_id)
     except ValueError as e:
-        raise ValueError(f"ADMIN_IDS must be integers, got: {raw_ids}") from e
+        raise ValueError(f"ADMIN_ID должен быть числом, получено: {raw_id}") from e
     
     db = DatabaseSettings(
         name=env("POSTGRES_DB"),
@@ -111,17 +111,17 @@ def load_config(path: str | None = None) -> Config:
         format=env("LOG_FORMAT")
     )
 
-    validator=ValidatorConfig(
-        enabled=env.bool("VALIDATOR_ENABLED", True),
-        bypass=env.bool("VALIDATOR_BYPASS", False),
-        fallback_enabled=env.bool("VALIDATOR_FIRST_ORDER", True),
+    bug_description_model=BugDescriptionModelConfig(
+        enabled=env.bool("BUG_DESCRIPTION_MODEL_ENABLED", True),
+        bypass=env.bool("BUG_DESCRIPTION_MODEL_BYPASS", False),
+        fallback_enabled=env.bool("BUG_DESCRIPTION_MODEL_FIRST_ORDER", True),
 
-        train_file=env.str("VALIDATOR_TRAIN_FILE", "validator/train.txt"),
-        second_order_threshold=env.float("VALIDATOR_SECOND_ORDER_THRESHOLD", 0.18),
+        train_file=env.str("BUG_DESCRIPTION_MODEL_TRAIN_FILE", r"\config\data\train.txt"),
+        second_order_threshold=env.float("BUG_DESCRIPTION_MODEL_SECOND_ORDER_THRESHOLD", 0.18),
 
-        first_order_threshold=env.float("VALIDATOR_FIRST_ORDER_THRESHOLD", 0.08),
-        retrain_on_start=env.bool("VALIDATOR_RETRAIN_ON_START", True),
-        retrain_after_changes=env.int("RETRAIN_AFTER_CHANGES", 10)
+        first_order_threshold=env.float("BUG_DESCRIPTION_MODEL_FIRST_ORDER_THRESHOLD", 0.08),
+        retrain_on_start=env.bool("BUG_DESCRIPTION_MODEL_RETRAIN_ON_START", True),
+        retrain_after_changes=env.int("BUG_DESCRIPTION_MODEL_RETRAIN_AFTER_CHANGES", 10)
     )
 
     logger.info("Configuration loaded successfully")
@@ -131,5 +131,5 @@ def load_config(path: str | None = None) -> Config:
         db=db,
         #redis=redis,
         log=logg_settings,
-        validator=validator
+        bug_description_model=bug_description_model
     )

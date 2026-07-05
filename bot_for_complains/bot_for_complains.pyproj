@@ -97,16 +97,16 @@
     <Compile Include="services\training_scheduler.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="services\validator\markov.py">
+    <Compile Include="services\bug_description_model\markov.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="services\validator\normalize.py">
+    <Compile Include="services\bug_description_model\normalize.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="services\validator\trainer.py">
+    <Compile Include="services\bug_description_model\trainer.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="services\validator\__init__.py">
+    <Compile Include="services\bug_description_model\__init__.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="services\__init__.py" />
@@ -129,7 +129,7 @@
     <Folder Include="logs\" />
     <Folder Include="middlewares\" />
     <Folder Include="services\" />
-    <Folder Include="services\validator\" />
+    <Folder Include="services\bug_description_model\" />
     <Folder Include="states\" />
     <Folder Include="tests\" />
     <Folder Include="utils\" />
