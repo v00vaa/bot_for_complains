@@ -7,21 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
 from database import (
-    BugView,                        # \database\db\common.py
-    accept_bug,                     # \database\db\update.py
-    complete_bug_fix,               # \database\db\update.py
-    get_admin_bugs_count,           # \database\db\counters.py
-    get_admin_bugs_page,            # \database\db\pagination.py
-    get_bug_by_id,                  # \database\db\queries.py
-    get_bug_page,                   # \database\db\pagination.py
-    get_bug_page_count,             # \database\db\counters.py
-    get_bug_version_by_number,      # \database\db\queries.py
-    get_bug_versions_count,         # \database\db\counters.py
-    get_bugs_count,                 # \database\db\counters.py
-    get_bugs_page,                  # \database\db\pagination.py
-    invalidate_bug,                 # \database\db\update.py
-    set_bug_severity,               # \database\db\update.py
-    set_training_sample,            # \database\db\update.py
+    BugView,
+    accept_bug,
+    complete_bug_fix,
+    get_admin_bugs_count,
+    get_admin_bugs_page,
+    get_bug_by_id,
+    get_bug_page,   
+    get_bug_page_count,
+    get_bug_version_by_number,
+    get_bug_versions_count,  
+    get_bugs_count,  
+    get_bugs_page,  
+    invalidate_bug,      
+    set_bug_severity,           
+    set_training_sample,  
 )
 from filters import IsAdmin, TextKeyFilter
 from keyboards import (
@@ -42,19 +42,31 @@ PAGE_SIZE = 5
 
 
 def _is_assigned_admin(bug, admin_id: int) -> bool:
-    # Проверяет, назначен ли текущий баг данному администратору.
+    """
+    Проверяет, назначено ли обращение текущему администратору.
+
+    Используется для отображения различных кнопок
+    (например, "Завершить исправление")
+    только ответственному исполнителю.
+    """
     return bug.status == "in_progress" and bug.assigned_admin_id == admin_id
 
-# Формирует клавиатуру карточки бага с учетом:
-# - количества версий;
-# - назначения администратора;
-# - участия версии в обучающей выборке.
 async def _get_bug_keyboard(
     session: AsyncSession,
     bug: BugView,
     admin_id: int,
     i18n: dict[str, str],
 ):
+    """
+    Формирует клавиатуру карточки обращения.
+
+    Перед созданием клавиатуры определяется:
+        • количество версий обращения;
+        • назначен ли текущий администратор исполнителем;
+        • входит ли версия в обучающую выборку.
+
+    Эти данные влияют на отображаемые кнопки.
+    """
     newest_version = await get_bug_versions_count(session, bug.id)
     return get_bug_card_keyboard(
         bug_id=bug.id,
@@ -69,7 +81,7 @@ async def _get_bug_keyboard(
 # Запуск для администратора
 @admin_router.message(CommandStart(), IsAdmin())
 async def process_start_command(message: Message, i18n: dict[str, str]):
-    logger.info("Admin %s started bot", message.from_user.id)
+    logger.info("Администратор %s запустил бота", message.from_user.id)
     await message.answer(
         text=i18n["/start_admin"],
         reply_markup=get_admin_keyboard(i18n),
@@ -224,14 +236,23 @@ async def process_bug_details(
         await callback.answer(i18n["bug_not_found"], show_alert=True)
         return
 
-    logger.info("Admin %s opened bug #%s", callback.from_user.id, bug_id)
+    logger.info(
+        "Администратор %s открыл обращение #%s",
+        callback.from_user.id,
+        bug_id,
+    )
     await callback.message.answer(
         text=format_bug_card(bug, i18n),
         reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
     )
     await callback.answer()
 
-# Просмотр карточек и истории бага
+# --------------------------------------------------------------------------
+# Открытие карточки обращения по введенному номеру.
+#
+# Используется как быстрый способ перехода к обращению
+# без поиска по спискам.
+# --------------------------------------------------------------------------
 @admin_router.message(F.text.regexp(r"^\d+$"), IsAdmin())
 async def process_bug_by_id(
     message: Message,
@@ -245,13 +266,19 @@ async def process_bug_by_id(
         await message.answer(i18n["bug_not_found"])
         return
 
-    logger.info("Admin %s opened bug #%s by id", message.from_user.id, bug_id)
+    logger.info("Администратор %s открыл обращение #%s по id", message.from_user.id, bug_id)
     await message.answer(
         text=format_bug_card(bug, i18n),
         reply_markup=await _get_bug_keyboard(session, bug, message.from_user.id, i18n),
     )
 
-
+# --------------------------------------------------------------------------
+# Изменение критичности обращения.
+#
+# Критичность хранится в истории статусов.
+# Поэтому изменение не редактирует существующую запись,
+# а создает новый BugStatus с обновленным severity.
+# --------------------------------------------------------------------------
 @admin_router.callback_query(F.data.startswith("set_severity:"), IsAdmin())
 async def process_set_severity(
     callback: CallbackQuery,
@@ -266,7 +293,7 @@ async def process_set_severity(
         return
 
     logger.info(
-        "Admin %s set severity '%s' for bug #%s",
+        "Администратор %s установил критичность '%s' для обращения #%s",
         callback.from_user.id,
         severity,
         bug_id,
@@ -303,7 +330,7 @@ async def process_bug_version(
         return
 
     logger.info(
-        "Admin %s opened bug #%s version %s",
+        "Администратор %s открыл обращение #%s версия %s",
         callback.from_user.id,
         bug_id,
         version,
@@ -314,7 +341,12 @@ async def process_bug_version(
     )
     await callback.answer()
 
-
+# --------------------------------------------------------------------------
+# Отправка администратору файла отчета.
+#
+# Можно открыть как файл текущей версии,
+# так и файл любой предыдущей версии обращения.
+# --------------------------------------------------------------------------
 @admin_router.callback_query(F.data.startswith("report_file:"), IsAdmin())
 async def process_report_file(
     callback: CallbackQuery,
@@ -335,7 +367,7 @@ async def process_report_file(
         return
 
     logger.info(
-        "Admin %s requested file for bug #%s version %s",
+        "Администратор %s requested file for bug #%s version %s",
         callback.from_user.id,
         bug_id,
         bug.version,
@@ -369,12 +401,13 @@ async def process_accept_bug(
         admin_id=callback.from_user.id,
         admin_username=callback.from_user.username,
     )
-
+    # После принятия обращения администратор становится
+    # ответственным исполнителем.
     if bug is None:
         await callback.answer(i18n["bug_not_found"], show_alert=True)
         return
 
-    logger.info("Admin %s accepted bug #%s", callback.from_user.id, bug_id)
+    logger.info("Администратор %s принял обращение #%s", callback.from_user.id, bug_id)
     await callback.message.edit_text(
         text=format_bug_card(bug, i18n),
         reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
@@ -412,13 +445,14 @@ async def process_complete_fix(
     if bug is None:
         await callback.answer(i18n["bug_not_found"], show_alert=True)
         return
-
+    # Завершить исправление может только тот администратор,
+    # которому назначено обращение.
     if bug.assigned_admin_id != callback.from_user.id:
         await callback.answer(i18n["access_denied"], show_alert=True)
         return
 
     bug = await complete_bug_fix(session, bug_id)
-    logger.info("Admin %s completed bug #%s", callback.from_user.id, bug_id)
+    logger.info("Администратор %s завершил обращение #%s", callback.from_user.id, bug_id)
 
     await callback.bot.send_message(
         chat_id=bug.user_id,
@@ -470,7 +504,8 @@ async def process_invalid_bug(
             show_alert=True,
         )
         return
-
+    # Пользователь получает предложение заново описать проблему.
+    # После этого будет создана новая версия обращения.
     await callback.bot.send_message(
         chat_id=bug.user_id,
         text=i18n["invalid_description_message"],
@@ -521,9 +556,7 @@ async def process_training_add(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
-    bug_description_model: MarkovModel,
     training_scheduler: TrainingScheduler,
-    session_factory,
 ):
     _, bug_id, version = callback.data.split(":")
 
@@ -547,6 +580,9 @@ async def process_training_add(
     )
 
     if changed:
+        # После изменения обучающей выборки уведомляем планировщик.
+        # Если накоплено достаточное количество изменений,
+        # модель будет переобучена автоматически.
         await training_scheduler.notify_change()
         bug = await get_bug_version_by_number(
             session,
@@ -586,9 +622,7 @@ async def process_training_remove(
     callback: CallbackQuery,
     session: AsyncSession,
     i18n: dict[str, str],
-    bug_description_model: MarkovModel,
     training_scheduler: TrainingScheduler,
-    session_factory,
 ):
     _, bug_id, version = callback.data.split(":")
 
@@ -612,6 +646,9 @@ async def process_training_remove(
     )
 
     if changed:
+        # После изменения обучающей выборки уведомляем планировщик.
+        # Если накоплено достаточное количество изменений,
+        # модель будет переобучена автоматически.
         await training_scheduler.notify_change()
 
         bug = await get_bug_version_by_number(

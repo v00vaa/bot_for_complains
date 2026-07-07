@@ -1,4 +1,6 @@
-# пакет с функциями взаимодействия с базой данных
+"""
+пакет с функциями взаимодействия с базой данных
+"""
 from .create import *
 from .update import *
 from .queries import *

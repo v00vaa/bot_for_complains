@@ -85,6 +85,9 @@
     <Compile Include="services\bug_analyzer.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="services\bug_description_logger.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="services\bug_formatter.py">
       <SubType>Code</SubType>
     </Compile>

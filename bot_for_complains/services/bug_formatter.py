@@ -1,3 +1,15 @@
+"""
+Модуль форматирования карточек обращений.
+
+Здесь находятся функции, преобразующие объекты BugView
+в готовый HTML-текст для Telegram.
+
+Вынесение форматирования в отдельный модуль позволяет:
+
+• не смешивать бизнес-логику и оформление сообщений;
+• использовать один шаблон сразу во всех хэндлерах;
+• изменять внешний вид карточек в одном месте.
+"""
 from typing import Any
 
 
@@ -5,6 +17,18 @@ def get_status_text(
     bug: Any,
     i18n: dict[str, str],
 ) -> str:
+    """
+    Возвращает красивое текстовое представление статуса.
+
+    Для статуса "В работе" дополнительно отображается
+    администратор, которому назначено обращение.
+
+    Пример:
+
+        В работе у @admin
+
+    Для остальных статусов используется перевод из словаря.
+    """
     if bug.status == "in_progress" and bug.assigned_admin_username:
         return (
             f"{i18n['status_in_progress']} "
@@ -18,6 +42,15 @@ def get_severity_text(
     severity: str,
     i18n: dict[str, str],
 ) -> str:
+    """
+    Преобразует внутренний код критичности
+    в читаемый текст.
+
+    Например:
+
+        critical -> Критическая
+        low -> Низкая
+    """
     return i18n.get(f"severity_{severity}", severity)
 
 
@@ -25,6 +58,23 @@ def format_bug_card(
     bug: Any,
     i18n: dict[str, str],
 ) -> str:
+    """
+    Формирует полную карточку обращения
+    для администратора.
+
+    Содержит:
+
+    • номер обращения;
+    • версию;
+    • описание;
+    • критичность;
+    • текущий статус;
+    • имя прикреплённого отчёта;
+    • ссылку на пользователя.
+
+    Используется практически во всех административных
+    обработчиках.
+    """
     status_text = get_status_text(bug, i18n)
     severity_text = get_severity_text(bug.severity, i18n)
 
@@ -45,6 +95,20 @@ def format_user_bug_card(
     bug: Any,
     i18n: dict[str, str],
 ) -> str:
+    """
+    Формирует сокращённую карточку обращения
+    для обычного пользователя.
+
+    В отличие от административной карточки
+    здесь отсутствует информация:
+
+    • о критичности;
+    • о назначенном администраторе;
+    • о внутренних служебных данных.
+
+    Пользователь видит только сведения,
+    относящиеся к его обращению.
+    """
     status_text = get_status_text(bug, i18n)
 
     return (
@@ -55,26 +119,3 @@ def format_user_bug_card(
         f"{i18n['report']}: {bug.report_file_name}"
     )
 
-
-def format_bug_short(
-    bug: Any,
-    i18n: dict[str, str],
-) -> str:
-    return (
-        f"#{bug.id} | "
-        f"{get_status_text(bug, i18n)}"
-    )
-
-
-def format_bug_history(
-    versions: list[Any],
-    i18n: dict[str, str],
-) -> str:
-    if not versions:
-        return i18n["history_empty"]
-
-    rows = [
-        f"v{version.version}: {version.report_file_name}"
-        for version in versions
-    ]
-    return "\n".join(rows)

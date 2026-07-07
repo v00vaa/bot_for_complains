@@ -1,58 +1,68 @@
+"""
+Роутер суперадминистратора.
+
+Содержит обработчики, доступные только главному администратору:
+
+    • запуск бота;
+    • назначение новых администраторов;
+    • удаление администраторов.
+
+Выбор пользователей выполняется средствами Telegram через
+KeyboardButtonRequestUser, поэтому отдельные сценарии выбора
+пользователя отсутствуют.
+"""
+
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from filters import IsSuperAdmin
-from keyboards import get_super_admin_keyboard, get_remove_admin_keyboard, get_add_admin_keyboard
+from keyboards import get_super_admin_keyboard
 from services.roles import RolesStorage
 
 
 super_admin_router = Router()
 
-# Этот хэндлер срабатывает на команду /start администратора 
-@super_admin_router.message(CommandStart(), IsSuperAdmin())
-async def process_start_command(message: Message, i18n: dict[str, str]):
-    
-    await message.answer(
-        text=i18n.get("/start_admin"),
-        reply_markup=get_super_admin_keyboard(i18n)
-    )
 
 @super_admin_router.message(
-    F.text == "Добавить администратора",
-    IsSuperAdmin()
+    CommandStart(),
+    IsSuperAdmin(),
 )
-async def process_add_admin(
+async def process_start_command(
     message: Message,
-    i18n: dict[str, str]
+    i18n: dict[str, str],
 ):
+    """
+    Отправляет главное меню суперадминистратора.
+    """
+
     await message.answer(
-        i18n["choose_user_for_admin"],
-        reply_markup=get_add_admin_keyboard(i18n)
+        text=i18n["/start_admin"],
+        reply_markup=get_super_admin_keyboard(i18n),
     )
 
-@super_admin_router.message(
-    F.text == "Удалить администратора",
-    IsSuperAdmin()
-)
-async def process_remove_admin(
-    message: Message,
-    i18n: dict[str, str]
-):
-    await message.answer(
-        i18n["choose_admin_for_remove"],
-        reply_markup=get_remove_admin_keyboard(i18n)
-    )
 
 @super_admin_router.message(
     F.user_shared,
-    IsSuperAdmin()
+    IsSuperAdmin(),
 )
 async def process_user_shared(
     message: Message,
     roles: RolesStorage,
-    i18n: dict[str, str]
+    i18n: dict[str, str],
 ):
+    """
+    Обрабатывает пользователя, выбранного через request_user.
+
+    request_id определяет действие:
+
+        1 — добавить администратора;
+        2 — удалить администратора.
+
+    После выполнения операции пользователю снова отображается
+    основное меню.
+    """
+
     request_id = message.user_shared.request_id
     user_id = message.user_shared.user_id
 
@@ -70,7 +80,10 @@ async def process_user_shared(
             else i18n["not_admin"]
         )
 
+    else:
+        return
+
     await message.answer(
         text,
-        reply_markup=get_super_admin_keyboard(i18n)
+        reply_markup=get_super_admin_keyboard(i18n),
     )
