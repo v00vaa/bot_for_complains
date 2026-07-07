@@ -1,5 +1,29 @@
+"""
+Функции создания новых обращений и их состояний.
+
+Назначение
+----------
+Модуль инкапсулирует логику первоначального создания обращения в базе
+данных. При регистрации нового бага создаются записи сразу в нескольких
+таблицах, каждая из которых отвечает за собственную часть информации.
+
+Процесс создания обращения состоит из следующих этапов:
+
+    1. Создается запись BugReport.
+       Содержит неизменяемую информацию об обращении
+       (автор, дата создания, заголовок).
+
+    2. Создается первая версия BugData.
+       Содержит описание проблемы и приложенный пользователем файл.
+
+    3. Создается первая запись BugStatus.
+       Фиксирует текущее состояние обращения ("new")
+       и начальную критичность.
+
+После успешного создания всех записей изменения фиксируются одной
+транзакцией, что гарантирует целостность данных.
+"""
 import logging
-from venv import logger
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +38,7 @@ from .common import (
 
 from .queries import (
     get_actual_status,
+    get_actual_version,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,13 +50,25 @@ async def create_bug(
     file_id: str,
     file_name: str,
 ) -> BugView:
+    """
+    Создает новое обращение.
+
+    Помимо записи самого обращения автоматически создаются:
+
+        • первая версия BugData;
+        • первый статус BugStatus.
+
+    После успешного завершения возвращается объект BugView,
+    содержащий актуальное состояние созданного обращения.
+    """
+    # Создание основной записи обращения.
     bug = BugReport(
         user_id=user_id,
         title=generate_bug_title(description),
     )
     session.add(bug)
     await session.flush()
-
+    # Создание первой версии описания обращения.
     data = BugData(
         bug_id=bug.id,
         version=1,
@@ -41,7 +78,7 @@ async def create_bug(
     )
     session.add(data)
     await session.flush()
-
+    # Создание первоначального статуса.
     status = await create_status(
         session=session,
         bug_id=bug.id,
@@ -62,6 +99,12 @@ async def create_status(
     assigned_admin_id: int | None = None,
     assigned_admin_username: str | None = None,
 ) -> BugStatus:
+    """
+    Создает новую запись истории статусов.
+
+    Если критичность явно не указана,
+    она наследуется от предыдущего состояния обращения.
+    """
     last_status = await get_actual_status(session, bug_id)
 
     status_row = BugStatus(
@@ -84,4 +127,57 @@ async def create_status(
     )
     return status_row
 
+async def update_bug(
+    session: AsyncSession,
+    bug_id: int,
+    description: str,
+    file_id: str,
+    file_name: str,
+) -> BugView | None:
+    """
+    Создает новую версию существующего обращения.
 
+    Данная функция используется при повторном открытии обращения
+    пользователем после того, как администратор отметил его как
+    исправленное.
+
+    В отличие от обычного обновления записи:
+
+        • предыдущие версии обращения не изменяются;
+        • создается новая запись BugData с увеличенным номером версии;
+        • создается новая запись BugStatus со статусом "reopened".
+
+    Благодаря этому сохраняется полная история изменений обращения,
+    включая все предыдущие описания и приложенные пользователем файлы.
+
+    Возвращает актуальное представление обращения (BugView) либо None,
+    если обращение не найдено.
+    """
+    bug = await session.get(BugReport, bug_id)
+    current_data = await get_actual_version(session, bug_id)
+    last_status = await get_actual_status(session, bug_id)
+
+    if bug is None or current_data is None:
+        return None
+    # Создаем новую версию описания
+    data = BugData(
+        bug_id=bug_id,
+        version=current_data.version + 1,
+        description=description,
+        report_file_id=file_id,
+        report_file_name=file_name,
+    )
+    session.add(data)
+    await session.flush()
+    # Фиксируем повторное открытие обращения.
+    # Критичность наследуется от предыдущего статуса.
+    status = await create_status(
+        session=session,
+        bug_id=bug_id,
+        bug_data_id=data.id,
+        status="reopened",
+        severity=last_status.severity if last_status else SEVERITY_NOT_SET,
+    )
+
+    await session.commit()
+    return _bug_view_from_row(bug, data, status)

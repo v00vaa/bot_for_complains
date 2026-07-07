@@ -4,7 +4,7 @@ from collections import defaultdict
 from .normalize import normalize
 
 
-class MarkovValidator:
+class MarkovModel:
 
     def __init__(
         self,

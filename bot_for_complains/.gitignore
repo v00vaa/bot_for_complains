@@ -16,3 +16,6 @@ config\data\admins.json
 
 .postgres_data/
 .pgadmin_data/
+
+/bot_for_complains/.env
+/bot_for_complains/config/data/admins.json

@@ -1,3 +1,14 @@
+"""
+notifications.py
+
+Отправка уведомлений администраторам о новых обращениях пользователей.
+
+Каждый администратор получает сообщение с кнопкой быстрого перехода
+к карточке нового бага.
+
+Небольшая задержка между сообщениями позволяет избежать превышения
+лимитов Telegram Bot API.
+"""
 import asyncio
 import logging
 
@@ -15,6 +26,22 @@ async def notify_admins_about_bug(
     bug_id: int,
     i18n: dict[str, str],
 ) -> None:
+    """
+    Рассылает уведомление всем администраторам.
+
+    Args:
+        bot:
+            Экземпляр Telegram-бота.
+
+        admin_ids:
+            Список Telegram ID администраторов.
+
+        bug_id:
+            Идентификатор созданного обращения.
+
+        i18n:
+            Словарь локализованных сообщений.
+    """
 
     for admin_id in admin_ids:
         try:
@@ -27,7 +54,8 @@ async def notify_admins_about_bug(
                 ),
             )
 
-            # Пауза между сообщениями
+            # Небольшая задержка между сообщениями
+            # уменьшает вероятность получения FloodWait.
             await asyncio.sleep(0.05)
 
         except Exception as error:

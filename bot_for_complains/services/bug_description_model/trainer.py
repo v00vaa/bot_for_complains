@@ -4,11 +4,11 @@ from sqlalchemy import select
 
 from database.models import BugData
 
-from .markov import MarkovValidator
+from .markov import MarkovModel
 
 
-async def train_validator(
-    validator: MarkovValidator,
+async def train_bug_description_model(
+    bug_description_model: MarkovModel,
     session,
     train_file: str,
 ):
@@ -32,18 +32,18 @@ async def train_validator(
 
     corpus.extend(result.scalars().all())
 
-    validator.fit(corpus)
+    bug_description_model.fit(corpus)
 
-    return validator
+    return bug_description_model
 
-async def retrain_validator(
-    validator: MarkovValidator,
+async def retrain_bug_description_model(
+    bug_description_model: MarkovModel,
     session_factory,
     train_file: str,
 ):
     async with session_factory() as session:
-        await train_validator(
-            validator,
+        await train_bug_description_model(
+            bug_description_model,
             session,
             train_file,
         )

@@ -1,17 +1,28 @@
-﻿from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+﻿"""
+Клавиатуры администратора.
+
+Файл содержит все интерфейсные элементы, с которыми работает администратор:
+- главное меню;
+- список обращений с пагинацией;
+- карточку обращения;
+- кнопку уведомления о новом обращении.
+
+Клавиатуры не содержат бизнес-логики — они только формируют интерфейс
+Telegram на основании переданных данных.
+"""
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 def get_admin_keyboard(i18n: dict[str, str]) -> ReplyKeyboardMarkup:
+    """
+    Главное меню администратора.
+
+    Отображается после команды /start и позволяет перейти
+    к просмотру списка обращений.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=i18n["bug_list"])]],
         resize_keyboard=True,
     )
-
-
-def get_bug_details_keyboard(bug_id: int, i18n: dict[str, str]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=i18n["details"], callback_data=f"bug_details:{bug_id}")]]
-    )
-
 
 def get_admin_bug_list_keyboard(
     bugs: list,
@@ -21,6 +32,16 @@ def get_admin_bug_list_keyboard(
     show_my_bugs: bool,
     i18n: dict[str, str],
 ) -> InlineKeyboardMarkup:
+    """
+    Формирует список обращений администратора.
+
+    Содержит:
+    - список обращений;
+    - переключение между всеми обращениями и обращениями,
+      назначенными текущему администратору;
+    - кнопки пагинации.
+    """
+    # Кнопка для каждого обращения.
     keyboard = [
         [
             InlineKeyboardButton(
@@ -31,7 +52,7 @@ def get_admin_bug_list_keyboard(
         for bug in bugs
     ]
 
-    # Кнопка переключения режима
+    # Кнопка переключения режима просмотра.
     keyboard.append([
         InlineKeyboardButton(
             text=(
@@ -48,7 +69,7 @@ def get_admin_bug_list_keyboard(
     ])
 
     navigation_row = []
-
+    # Кнопка перехода на предыдущую страницу.
     if has_prev:
         navigation_row.append(
             InlineKeyboardButton(
@@ -58,7 +79,7 @@ def get_admin_bug_list_keyboard(
                 ),
             )
         )
-
+    # Кнопка перехода на следующую страницу.
     if has_next:
         navigation_row.append(
             InlineKeyboardButton(
@@ -86,11 +107,26 @@ def get_bug_card_keyboard(
     i18n: dict[str, str],
     is_training_sample: bool,
 ) -> InlineKeyboardMarkup:
+    """
+    Клавиатура карточки обращения.
+
+    Содержимое зависит от текущего состояния обращения:
+
+    • скачивание отчёта;
+    • принятие обращения в работу;
+    • пометка обращения как некорректного;
+    • управление обучающей выборкой модели;
+    • завершение исправления;
+    • изменение критичности;
+    • навигация по версиям обращения.
+    """
+    # Базовые действия доступны всегда.
     keyboard = [
         [InlineKeyboardButton(text=i18n["report_file"], callback_data=f"report_file:{bug_id}:{version}")],
         [InlineKeyboardButton(text=i18n["accept"], callback_data=f"accept_bug:{bug_id}")],
     ]
-
+    # Пока обращение не принято в работу,
+    # его можно отметить как некорректное.
     if not is_assigned_admin:
         keyboard.append([
             InlineKeyboardButton(
@@ -98,6 +134,7 @@ def get_bug_card_keyboard(
                 callback_data=f"invalid_bug:{bug_id}",
             )
         ])
+    # Кнопка управления обучающей выборкой модели.
     if not is_training_sample:
         keyboard.append([
             InlineKeyboardButton(
@@ -112,10 +149,10 @@ def get_bug_card_keyboard(
                 callback_data=f"training_remove:{bug_id}:{version}",
             )
         ])
-
+    # Завершить исправление может только назначенный администратор.
     if is_assigned_admin:
         keyboard.append([InlineKeyboardButton(text=i18n["complete_fix"], callback_data=f"complete_fix:{bug_id}")])
-
+    # Кнопки установки критичности.
     keyboard.extend(
         [
             [
@@ -129,7 +166,7 @@ def get_bug_card_keyboard(
             ],
         ]
     )
-
+    # Навигация между версиями обращения.
     navigation_row = []
     if version < newest_version:
         navigation_row.append(
@@ -148,6 +185,12 @@ def get_bug_notification_keyboard(
     bug_id: int,
     i18n: dict[str, str],
 ) -> InlineKeyboardMarkup:
+    """
+    Клавиатура уведомления о новом обращении.
+
+    Используется при массовой рассылке администраторам.
+    Содержит только кнопку быстрого открытия карточки обращения.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
