@@ -3,6 +3,9 @@ from collections import defaultdict
 import logging
 
 from .normalize import normalize
+# проверка на похожисть на обучающий материал
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,17 @@ class MarkovModel:
         # слово1 -> Counter(слово2)
         self.first = defaultdict(Counter)
 
+        # используется ослабление строгости цепи Маркова с помощью проверки на похожость
+        self.train_texts = []
+
+        self.vectorizer = TfidfVectorizer(
+            lowercase=True,
+            ngram_range=(1,2),
+        )
+
+        self.train_vectors = None
+        #----------------------------------------
+
         self.second_threshold = second_order_threshold
         self.first_threshold = first_order_threshold
 
@@ -72,6 +86,16 @@ class MarkovModel:
         """
         self.second.clear()
         self.first.clear()
+        #---------------------------------------------
+        self.train_texts = [
+            normalize(text)
+            for text in texts
+        ]
+
+        self.train_vectors = self.vectorizer.fit_transform(
+            self.train_texts
+        )
+        #-------------------------------------------
 
         for text in texts:
 
@@ -79,20 +103,61 @@ class MarkovModel:
 
             if len(words) < 2:
                 continue
-            # Строим модель первого порядка.
+
             for i in range(len(words)-1):
                 self.first[words[i]][words[i+1]] += 1
-            # Строим модель второго порядка.
+
             for i in range(len(words)-2):
                 self.second[
                     (words[i], words[i+1])
                 ][words[i+2]] += 1
-        
+
+
         logger.info(
-            "Марковская модель обучена: first_states=%d second_states=%d",
+            "Марковская модель обучена: "
+            "first_states=%d second_states=%d train_texts=%d",
             len(self.first),
             len(self.second),
+            len(self.train_texts),
         )
+
+    def similarity_score(self, text: str):
+        """
+        проверка на похожесть
+        """
+        if not self.train_texts:
+            return 0
+
+
+        normalized = normalize(text)
+
+
+        vector = self.vectorizer.transform(
+            [normalized]
+        )
+
+
+        scores = cosine_similarity(
+            vector,
+            self.train_vectors
+        )[0]
+
+
+        max_score = scores.max()
+
+
+        index = scores.argmax()
+
+
+        logger.debug(
+            "Похожесть текста: "
+            "score=%.3f similar='%s'",
+            max_score,
+            self.train_texts[index],
+        )
+
+
+        return max_score
 
     def score_second(self, text: str):
         """
@@ -218,7 +283,15 @@ class MarkovModel:
         normalized = normalize(text)
 
         second = self.score_second(text)
-
+        # оценка похожисти
+        similarity = self.similarity_score(text)
+        logger.debug(
+            "Оценка описания: "
+            "markov=%.3f similarity=%.3f text='%s'",
+            second,
+            similarity,
+            normalized,
+        )
         logger.debug(
             "Проверка описания: "
             "second=%.3f threshold=%.3f text='%s'",
@@ -226,13 +299,27 @@ class MarkovModel:
             self.second_threshold,
             normalized,
         )
+        # расчет финального счета
+        final_score = (
+            second * 0.4 +
+            similarity * 0.6
+        )
+        # если есть похожие описания доначистить счет
+        if similarity >= 0.20:
+            final_score += 0.1
 
-        if second >= self.second_threshold:
+        logger.debug(
+            "Итоговая оценка: %.3f, порог: %.3f",
+            final_score,
+            self.second_threshold
+        )
+
+
+        if final_score >= self.second_threshold:
             logger.info(
-                "Описание принято по модели второго порядка: "
-                "score=%.3f threshold=%.3f",
-                second,
-                self.second_threshold,
+                "Описание принято: "
+                "final=%.3f",
+                final_score,
             )
             return True
 
