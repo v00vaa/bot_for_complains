@@ -29,6 +29,7 @@ from keyboards import (
     get_admin_keyboard,
     get_bug_card_keyboard,
     get_bug_confirmation_keyboard,
+    get_severity_keyboard,
 )
 from services import TrainingScheduler, format_bug_card
 from services.bug_description_model import MarkovModel
@@ -272,6 +273,58 @@ async def process_bug_by_id(
         reply_markup=await _get_bug_keyboard(session, bug, message.from_user.id, i18n),
     )
 
+@admin_router.callback_query(
+    F.data.startswith("change_severity:")
+)
+async def process_change_severity(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+
+    await callback.message.edit_reply_markup(
+        reply_markup=get_severity_keyboard(
+            bug_id,
+            i18n,
+        )
+    )
+
+    await callback.answer()
+
+@admin_router.callback_query(
+    F.data.startswith("back_to_bug:")
+)
+async def process_back_to_bug(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    i18n: dict[str, str],
+):
+    bug_id = int(callback.data.split(":")[1])
+
+    bug = await get_bug_by_id(
+        session,
+        bug_id,
+    )
+
+    if bug is None:
+        await callback.answer(
+            i18n["bug_not_found"],
+            show_alert=True,
+        )
+        return
+
+    await callback.message.edit_reply_markup(
+        reply_markup=await _get_bug_keyboard(
+            session,
+            bug,
+            callback.from_user.id,
+            i18n,
+        )
+    )
+
+    await callback.answer()
+
 # --------------------------------------------------------------------------
 # Изменение критичности обращения.
 #
@@ -299,8 +352,16 @@ async def process_set_severity(
         bug_id,
     )
     await callback.message.edit_text(
-        text=format_bug_card(bug, i18n),
-        reply_markup=await _get_bug_keyboard(session, bug, callback.from_user.id, i18n),
+        text=format_bug_card(
+            bug,
+            i18n,
+        ),
+        reply_markup=await _get_bug_keyboard(
+            session,
+            bug,
+            callback.from_user.id,
+            i18n,
+        ),
     )
     await callback.answer(i18n["severity_updated"])
 

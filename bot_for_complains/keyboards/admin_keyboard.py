@@ -152,20 +152,14 @@ def get_bug_card_keyboard(
     # Завершить исправление может только назначенный администратор.
     if is_assigned_admin:
         keyboard.append([InlineKeyboardButton(text=i18n["complete_fix"], callback_data=f"complete_fix:{bug_id}")])
-    # Кнопки установки критичности.
-    keyboard.extend(
-        [
-            [
-                InlineKeyboardButton(text=i18n["severity_not_set"], callback_data=f"set_severity:{bug_id}:not_set"),
-                InlineKeyboardButton(text=i18n["severity_critical"], callback_data=f"set_severity:{bug_id}:critical"),
-            ],
-            [
-                InlineKeyboardButton(text=i18n["severity_high"], callback_data=f"set_severity:{bug_id}:high"),
-                InlineKeyboardButton(text=i18n["severity_medium"], callback_data=f"set_severity:{bug_id}:medium"),
-                InlineKeyboardButton(text=i18n["severity_low"], callback_data=f"set_severity:{bug_id}:low"),
-            ],
-        ]
-    )
+    keyboard.append(
+    [
+        InlineKeyboardButton(
+            text=i18n["change_severity"],
+            callback_data=f"change_severity:{bug_id}",
+        )
+    ]
+)
     # Навигация между версиями обращения.
     navigation_row = []
     if version < newest_version:
@@ -197,6 +191,49 @@ def get_bug_notification_keyboard(
                 InlineKeyboardButton(
                     text=i18n["details"],
                     callback_data=f"bug_details:{bug_id}",
+                )
+            ]
+        ]
+    )
+
+def get_severity_keyboard(
+    bug_id: int,
+    i18n: dict[str, str],
+) -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора критичности обращения.
+    """
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=i18n["severity_not_set"],
+                    callback_data=f"set_severity:{bug_id}:not_set",
+                ),
+                InlineKeyboardButton(
+                    text=i18n["severity_critical"],
+                    callback_data=f"set_severity:{bug_id}:critical",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=i18n["severity_high"],
+                    callback_data=f"set_severity:{bug_id}:high",
+                ),
+                InlineKeyboardButton(
+                    text=i18n["severity_medium"],
+                    callback_data=f"set_severity:{bug_id}:medium",
+                ),
+                InlineKeyboardButton(
+                    text=i18n["severity_low"],
+                    callback_data=f"set_severity:{bug_id}:low",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ Назад",
+                    callback_data=f"back_to_bug:{bug_id}",
                 )
             ]
         ]
