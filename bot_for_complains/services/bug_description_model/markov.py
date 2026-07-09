@@ -1,8 +1,10 @@
 from collections import Counter
 from collections import defaultdict
+import logging
 
 from .normalize import normalize
 
+logger = logging.getLogger(__name__)
 
 class MarkovModel:
     """
@@ -85,6 +87,12 @@ class MarkovModel:
                 self.second[
                     (words[i], words[i+1])
                 ][words[i+2]] += 1
+        
+        logger.info(
+            "Марковская модель обучена: first_states=%d second_states=%d",
+            len(self.first),
+            len(self.second),
+        )
 
     def score_second(self, text: str):
         """
@@ -106,6 +114,8 @@ class MarkovModel:
 
         total = 0
 
+        missed = []
+
         for i in range(len(words)-2):
 
             state = (
@@ -113,12 +123,28 @@ class MarkovModel:
                 words[i+1],
             )
 
+            next_word = words[i+2]
+
             total += 1
 
-            if words[i+2] in self.second[state]:
+            if next_word in self.second[state]:
                 ok += 1
+            else:
+                missed.append(
+                    f"{state} -> {next_word}"
+                )
+        score = ok / total if total else 0
 
-        return ok / total if total else 0
+        logger.debug(
+            "Проверка второго порядка: "
+            "score=%.3f ok=%d total=%d missed=%s",
+            score,
+            ok,
+            total,
+            missed[:10],
+        )
+
+        return score
 
     def score_first(self, text: str):
         """
@@ -136,14 +162,34 @@ class MarkovModel:
 
         total = 0
 
+        missed = []
+
         for i in range(len(words)-1):
+
+            current = words[i]
+            next_word = words[i+1]
 
             total += 1
 
-            if words[i+1] in self.first[words[i]]:
+            if next_word in self.first[current]:
                 ok += 1
+            else:
+                missed.append(
+                    f"{current} -> {next_word}"
+                )
 
-        return ok / total if total else 0
+        score = ok / total if total else 0
+
+        logger.debug(
+            "Проверка первого порядка: "
+            "score=%.3f ok=%d total=%d missed=%s",
+            score,
+            ok,
+            total,
+            missed[:10],
+        )
+
+        return score
 
     def validate(self, text: str):
         """
@@ -162,16 +208,78 @@ class MarkovModel:
            проверяем модель первого порядка.
         """
         if self.bypass:
+            logger.warning(
+                "Проверка отключена bypass=True. "
+                "Описание принято: %s",
+                text,
+            )
             return True
+
+        normalized = normalize(text)
 
         second = self.score_second(text)
 
+        logger.debug(
+            "Проверка описания: "
+            "second=%.3f threshold=%.3f text='%s'",
+            second,
+            self.second_threshold,
+            normalized,
+        )
+
         if second >= self.second_threshold:
+            logger.info(
+                "Описание принято по модели второго порядка: "
+                "score=%.3f threshold=%.3f",
+                second,
+                self.second_threshold,
+            )
             return True
 
         if not self.use_first_order:
+            logger.warning(
+                "Описание отклонено: "
+                "second_score ниже порога и first_order отключён. "
+                "second=%.3f threshold=%.3f text='%s'",
+                second,
+                self.second_threshold,
+                normalized,
+            )
             return False
 
         first = self.score_first(text)
 
-        return first >= self.first_threshold
+        logger.debug(
+            "Проверка первого порядка после отказа второго: "
+            "first=%.3f threshold=%.3f",
+            first,
+            self.first_threshold,
+        )
+
+        if first >= self.first_threshold:
+
+            logger.info(
+                "Описание принято по модели первого порядка: "
+                "score=%.3f threshold=%.3f",
+                first,
+                self.first_threshold,
+            )
+
+            return True
+
+
+        logger.warning(
+            "Описание отклонено: "
+            "second=%.3f (< %.3f), "
+            "first=%.3f (< %.3f), "
+            "words=%d, text='%s'",
+            second,
+            self.second_threshold,
+            first,
+            self.first_threshold,
+            len(normalized.split()),
+            normalized,
+        )
+
+
+        return False

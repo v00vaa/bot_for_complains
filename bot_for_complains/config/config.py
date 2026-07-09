@@ -1,6 +1,7 @@
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from environs import Env
 
@@ -68,6 +69,8 @@ class Config:
 
 
 def load_config(path: str | None = None) -> Config:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+
     env = Env()
 
     if path:
@@ -116,7 +119,7 @@ def load_config(path: str | None = None) -> Config:
         bypass=env.bool("BUG_DESCRIPTION_MODEL_BYPASS", False),
         fallback_enabled=env.bool("BUG_DESCRIPTION_MODEL_FIRST_ORDER", True),
 
-        train_file=env.str("BUG_DESCRIPTION_MODEL_TRAIN_FILE", r"\config\data\train.txt"),
+        train_file=env.str("BUG_DESCRIPTION_MODEL_TRAIN_FILE", BASE_DIR / "config" / "data" / "train.txt"),
         second_order_threshold=env.float("BUG_DESCRIPTION_MODEL_SECOND_ORDER_THRESHOLD", 0.18),
 
         first_order_threshold=env.float("BUG_DESCRIPTION_MODEL_FIRST_ORDER_THRESHOLD", 0.08),
